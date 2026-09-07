@@ -14,15 +14,12 @@ def run_node(device_id, device_type, node_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((NODE_IP, node_port))
 
-    # สถานะของเครื่อง
     state = {
         "is_configured": False,
-        "telemetry_interval": 5
+        "telemetry_interval": 5,
+        "device_status": "OFF" # เพิ่มตัวแปรเก็บสถานะการเปิด/ปิดอุปกรณ์
     }
 
-    # ==========================================
-    # 1. จำลองการอ่านค่าจาก EEPROM ตอนเปิดเครื่อง
-    # ==========================================
     eeprom_file = f"eeprom_sim_{device_id}.json"
     if os.path.exists(eeprom_file):
         try:
@@ -33,44 +30,43 @@ def run_node(device_id, device_type, node_port):
         except Exception as e:
             print(f"[Node] BOOT Error: Could not read EEPROM: {e}")
 
-    # ฟังก์ชันรอรับ Config
-    def listen_for_config():
+    # ฟังก์ชันรอรับ Config และ Command
+    def udp_listener():
         while True:
             data, addr = sock.recvfrom(1024)
             try:
                 msg = json.loads(data.decode())
-                if msg.get("type") == "config":
+                msg_type = msg.get("type")
+                
+                if msg_type == "config":
                     payload = msg.get("payload", {})
                     if isinstance(payload, str):
                         payload = json.loads(payload)
                         
-                    print(f"\n========================================")
-                    print(f"[Node] SUCCESS! Received Configuration:")
-                    print(json.dumps(payload, indent=2))
-                    print(f"========================================\n")
-                    
+                    print(f"\n[Node] SUCCESS! Received Configuration")
                     if "telemetry_interval" in payload:
                         state["telemetry_interval"] = int(payload["telemetry_interval"])
                     
                     state["is_configured"] = True
-
-                    # ==========================================
-                    # 2. จำลองการบันทึกค่าลง EEPROM เมื่อได้รับ Config
-                    # ==========================================
                     with open(eeprom_file, 'w') as f:
                         json.dump(state, f)
-                    print("[Node] State saved to Flash Memory (EEPROM).")
+
+                # รับคำสั่ง Control จากหน้าเว็บ
+                elif msg_type == "command":
+                    payload = msg.get("payload", {})
+                    action = payload.get("action", "OFF")
+                    print(f"\n[Node] >>> COMMAND RECEIVED: Turned {action} <<<")
+                    state["device_status"] = action
 
             except Exception as e:
-                print(f"Error parsing Config: {e}")
+                print(f"Error parsing UDP: {e}")
 
-    threading.Thread(target=listen_for_config, daemon=True).start()
+    threading.Thread(target=udp_listener, daemon=True).start()
     print(f"[Node] Started {device_id} ({device_type}) on port {node_port}")
 
     # Main Loop
     while True:
         if not state["is_configured"]:
-            # ส่ง Metadata
             metadata = {
                 "type": "metadata",
                 "payload": {
@@ -80,23 +76,28 @@ def run_node(device_id, device_type, node_port):
                 }
             }
             sock.sendto(json.dumps(metadata).encode(), (GATEWAY_IP, GATEWAY_PORT))
-            print("[Node] Sent Metadata via ESP-NOW Broadcast (Waiting for Config...)")
+            print("[Node] Sent Metadata via ESP-NOW Broadcast")
             time.sleep(5) 
         else:
-            # ส่ง Telemetry
+            # คำนวณการใช้ไฟตามสถานะ
+            if state["device_status"] == "ON":
+                power = round(random.uniform(50.0, 70.0), 2) # ถ้าเปิด กินไฟ 50-70W
+            else:
+                power = 0.0 # ถ้าปิด กินไฟ 0W
+
             telemetry = {
                 "type": "telemetry",
                 "payload": {
                     "device_id": device_id,
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                     "data": {
-                        "status": "ON" if device_type in ["lighting", "air_control"] else "DETECTED",
-                        "power_usage_watts": round(random.uniform(10.0, 20.0), 2)
+                        "status": state["device_status"],
+                        "power_usage_watts": power
                     }
                 }
             }
             sock.sendto(json.dumps(telemetry).encode(), (GATEWAY_IP, GATEWAY_PORT))
-            print(f"[Node] Sent Telemetry (Power: {telemetry['payload']['data']['power_usage_watts']} W)")
+            print(f"[Node] Sent Telemetry (Status: {state['device_status']}, Power: {power} W)")
             time.sleep(state["telemetry_interval"])
 
 if __name__ == "__main__":

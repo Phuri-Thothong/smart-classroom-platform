@@ -15,7 +15,6 @@ ROOM_ID = "R201"
 UDP_IP = "127.0.0.1"
 UDP_PORT = 5000
 
-# จำลอง struct NodeRecord (แทน MAC Address ด้วย UDP Address)
 node_directory = {} 
 
 sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -26,37 +25,32 @@ sock.bind((UDP_IP, UDP_PORT))
 # ==========================================
 def on_connect(client, userdata, flags, rc):
     print(f"[MQTT] Connected with result code {rc}")
-    topic = f"{PREFIX}/nodes/+/config"
-    client.subscribe(topic)
-    print(f"[MQTT] Subscribed to {topic}")
+    client.subscribe(f"{PREFIX}/nodes/+/config")
+    client.subscribe(f"{PREFIX}/nodes/+/command") # เพิ่มการรับฟัง Command
+    print(f"[MQTT] Subscribed to Config and Command topics")
 
 def on_message(client, userdata, msg):
     topic_str = msg.topic
     print(f"\n[MQTT] Received on: {topic_str}")
     
     parts = topic_str.split('/')
-    if len(parts) >= 2 and parts[-1] == "config":
+    if len(parts) >= 2:
+        endpoint = parts[-1] # จะเป็น "config" หรือ "command"
         device_id = parts[-2]
-        print(f"[Gateway] Parsed Device ID: {device_id}")
         
-        # ค้นหา Address ของ Node คล้ายๆ การหาเป้าหมาย MAC Address ใน ESP-NOW
-        if device_id in node_directory:
-            target_addr = node_directory[device_id]
-            
-            try:
-                payload_data = json.loads(msg.payload.decode())
-            except json.JSONDecodeError:
-                payload_data = msg.payload.decode()
-                
-            forward_msg = {
-                "type": "config",
-                "payload": payload_data
-            }
-            
-            sock.sendto(json.dumps(forward_msg).encode(), target_addr)
-            print(f"[ESP-NOW Sim] Config sent to Node: {device_id}")
-        else:
-            print(f"[Gateway] Error: Address not found for device: {device_id}")
+        if endpoint in ["config", "command"]:
+            if device_id in node_directory:
+                target_addr = node_directory[device_id]
+                try:
+                    payload_data = json.loads(msg.payload.decode())
+                except json.JSONDecodeError:
+                    payload_data = msg.payload.decode()
+                    
+                # ส่ง Data Packet ต่อให้ Node (ไม่ต้องหุ้ม type ซ้อนแล้ว เพราะ API หุ้มมาให้แล้ว)
+                sock.sendto(json.dumps(payload_data).encode(), target_addr)
+                print(f"[ESP-NOW Sim] {endpoint.upper()} forwarded to Node: {device_id}")
+            else:
+                print(f"[Gateway] Error: Address not found for device: {device_id}")
 
 mqtt_client = mqtt.Client()
 mqtt_client.on_connect = on_connect
@@ -76,10 +70,7 @@ def udp_listener():
             device_id = payload.get("device_id")
 
             if device_id and device_id != "null":
-                # บันทึกพิกัดของโหนด (saveNodeMAC)
                 node_directory[device_id] = addr
-
-                # เติม Context
                 payload["gateway_id"] = GATEWAY_ID
                 payload["room_id"] = ROOM_ID
 
