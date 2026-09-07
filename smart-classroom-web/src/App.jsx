@@ -27,11 +27,12 @@ export default function App() {
   const [devices, setDevices] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
   
-  // State สำหรับจัดการข้อมูลกราฟ
   const [telemetryData, setTelemetryData] = useState([]);
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
+  
+  // State ใหม่สำหรับเก็บสถานะเปิด-ปิดของสวิตช์
+  const [deviceStatus, setDeviceStatus] = useState({});
 
-  // ฟังก์ชันดึงข้อมูลอุปกรณ์
   const fetchDevices = useCallback(() => {
     fetch(`${API_BASE_URL}/devices`)
       .then((response) => {
@@ -41,13 +42,9 @@ export default function App() {
       .then((data) => {
         setDevices(data);
         setIsBackendOnline(true);
-        
-        // หากยังไม่ได้เลือก Node สำหรับกราฟ ให้เลือก Node แรกที่ไม่ได้สถานะ Pending
         if (!selectedGraphNode) {
           const activeNodes = data.filter(d => d.status !== 'pending');
-          if (activeNodes.length > 0) {
-            setSelectedGraphNode(activeNodes[0].node_id);
-          }
+          if (activeNodes.length > 0) setSelectedGraphNode(activeNodes[0].node_id);
         }
       })
       .catch((error) => {
@@ -56,39 +53,30 @@ export default function App() {
       });
   }, [selectedGraphNode]);
 
-  // ฟังก์ชันดึงข้อมูล Telemetry ของโหนดที่เลือกมาวาดกราฟ
   const fetchTelemetry = useCallback(() => {
     if (!selectedGraphNode) return;
-    
     fetch(`${API_BASE_URL}/devices/${selectedGraphNode}/telemetry`)
       .then(res => res.json())
       .then(data => {
-        // จัดฟอร์แมตข้อมูลให้ตรงกับที่ Recharts ต้องการ
         const formattedData = data.map(item => {
-          // เผื่อกรณีที่ Backend เก็บ data เป็น String ให้ parse เป็น Object ก่อน
           const sensorData = typeof item.data === 'string' ? JSON.parse(item.data) : item.data;
           const date = new Date(item.timestamp);
-          
           return {
             time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             power: sensorData.power_usage_watts || 0
           };
         });
-        
-        // ตัดเอาเฉพาะ 20 จุดล่าสุดเพื่อให้กราฟดูไม่แน่นเกินไป
         setTelemetryData(formattedData.slice(-20));
       })
       .catch(err => console.error("Error fetching telemetry:", err));
   }, [selectedGraphNode]);
 
-  // รอบการดึงข้อมูล Devices
   useEffect(() => {
     fetchDevices();
     const interval = setInterval(fetchDevices, 5000);
     return () => clearInterval(interval);
   }, [fetchDevices]);
 
-  // รอบการดึงข้อมูล Telemetry
   useEffect(() => {
     fetchTelemetry();
     const interval = setInterval(fetchTelemetry, 5000);
@@ -104,8 +92,28 @@ export default function App() {
       });
   };
 
-  const toggleDevice = (id) => {
-    console.log(`Toggle command sent for ${id}`);
+  // ฟังก์ชันใหม่สำหรับส่งคำสั่ง Control
+  const toggleDevice = async (id, currentStatus) => {
+    const newStatus = !currentStatus;
+    const action = newStatus ? "ON" : "OFF";
+    
+    // Optimistic UI: เปลี่ยนสีปุ่มทันทีเพื่อให้เว็บดูตอบสนองเร็ว
+    setDeviceStatus(prev => ({ ...prev, [id]: newStatus }));
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/devices/${id}/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action })
+      });
+      if (!response.ok) throw new Error("API error");
+      console.log(`Command ${action} sent to ${id}`);
+    } catch (error) {
+      console.error("Error sending command:", error);
+      // หากส่งคำสั่งพลาด ให้ปุ่มเด้งกลับสถานะเดิม
+      setDeviceStatus(prev => ({ ...prev, [id]: currentStatus }));
+      alert(`Failed to turn ${action} device ${id}`);
+    }
   };
 
   const getDeviceIcon = (deviceType) => {
@@ -119,41 +127,28 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-800">
-      
-      {/* Sidebar */}
       <aside className="w-64 bg-slate-800 text-slate-100 flex flex-col shadow-xl z-20">
         <div className="h-16 flex items-center px-6 border-b border-slate-700">
           <Zap className="text-blue-400 mr-3" size={24} />
           <h1 className="text-lg font-bold tracking-wide">Smart Class</h1>
         </div>
         <nav className="flex-1 py-6 px-3 space-y-2">
-          <button 
-            onClick={() => setActiveTab('dashboard')}
-            className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
-          >
+          <button onClick={() => setActiveTab('dashboard')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'dashboard' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
             <LayoutDashboard className="mr-3" size={20} />
             <span className="font-medium">Dashboard</span>
           </button>
-          <button 
-            onClick={() => setActiveTab('automation')}
-            className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'automation' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
-          >
+          <button onClick={() => setActiveTab('automation')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'automation' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
             <Clock className="mr-3" size={20} />
             <span className="font-medium">Automation</span>
           </button>
-          <button 
-            onClick={() => setActiveTab('users')}
-            className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'users' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}
-          >
+          <button onClick={() => setActiveTab('users')} className={`w-full flex items-center px-4 py-3 rounded-lg transition-colors ${activeTab === 'users' ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
             <Users className="mr-3" size={20} />
             <span className="font-medium">User Management</span>
           </button>
         </nav>
       </aside>
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
-        {/* Header */}
         <header className="h-16 bg-white shadow-sm flex items-center justify-between px-8 z-10">
           <h2 className="text-xl font-semibold text-slate-800 capitalize">{activeTab}</h2>
           <div className="flex items-center space-x-3">
@@ -164,13 +159,10 @@ export default function App() {
           </div>
         </header>
 
-        {/* Scrollable Workspace */}
         <div className="flex-1 overflow-auto p-8">
-          
           {activeTab === 'dashboard' && (
             <div className="max-w-7xl mx-auto space-y-6">
               
-              {/* 1. Real-time Overview */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center">
                   <div className="p-4 bg-green-50 text-green-600 rounded-lg mr-4"><UserCheck size={28} /></div>
@@ -203,8 +195,6 @@ export default function App() {
               </div>
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                
-                {/* 2. Device Node Registry & Control */}
                 <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                   <div className="flex justify-between items-center mb-4">
                     <h3 className="text-lg font-semibold text-slate-800">Node Registry & Control</h3>
@@ -212,14 +202,13 @@ export default function App() {
                   </div>
                   
                   {devices.length === 0 ? (
-                    <div className="text-center py-8 text-slate-400">
-                      <p>No devices registered in database.</p>
-                    </div>
+                    <div className="text-center py-8 text-slate-400"><p>No devices registered in database.</p></div>
                   ) : (
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       {devices.map((device) => {
                         const isOnline = true; 
                         const isPending = device.status === 'pending';
+                        const isOn = deviceStatus[device.node_id] || false; 
                         
                         return (
                           <div key={device.node_id} className={`flex items-center justify-between p-4 border rounded-lg ${isPending ? 'bg-yellow-50 border-yellow-200' : 'bg-slate-50 border-slate-100'}`}>
@@ -237,20 +226,17 @@ export default function App() {
                             </div>
                             
                             {isPending ? (
-                              <button 
-                                onClick={() => approveDevice(device.node_id)}
-                                className="flex items-center px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded shadow-sm transition-colors"
-                              >
-                                <CheckCircle size={14} className="mr-1" />
-                                Approve
+                              <button onClick={() => approveDevice(device.node_id)} className="flex items-center px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded shadow-sm transition-colors">
+                                <CheckCircle size={14} className="mr-1" /> Approve
                               </button>
                             ) : (
                               (device.device_type === 'lighting' || device.device_type === 'air_control') ? (
+                                // ปุ่มสวิตช์เปิดปิด
                                 <button 
-                                  onClick={() => toggleDevice(device.node_id)}
-                                  className="w-12 h-6 rounded-full bg-slate-300 relative flex items-center transition-colors hover:bg-slate-400"
+                                  onClick={() => toggleDevice(device.node_id, isOn)}
+                                  className={`w-12 h-6 rounded-full relative flex items-center transition-colors duration-300 ${isOn ? 'bg-blue-600' : 'bg-slate-300 hover:bg-slate-400'}`}
                                 >
-                                  <div className="w-4 h-4 bg-white rounded-full shadow-md transform translate-x-1"></div>
+                                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn ? 'translate-x-7' : 'translate-x-1'}`}></div>
                                 </button>
                               ) : (
                                 <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-200 px-2 py-1 rounded">Sensor</span>
@@ -263,7 +249,6 @@ export default function App() {
                   )}
                 </div>
 
-                {/* 3. Alerts & Notifications */}
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                   <h3 className="text-lg font-semibold text-slate-800 mb-4">Recent Alerts</h3>
                   <div className="space-y-4">
@@ -278,17 +263,12 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 4. Data Visualization (Recharts with Real Data) */}
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-semibold text-slate-800">Energy Consumption Trends</h3>
                   <div className="flex space-x-2">
                     <span className="text-sm text-slate-500 self-center">Node:</span>
-                    <select 
-                      value={selectedGraphNode}
-                      onChange={(e) => setSelectedGraphNode(e.target.value)}
-                      className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:border-slate-500 focus:ring focus:ring-slate-200"
-                    >
+                    <select value={selectedGraphNode} onChange={(e) => setSelectedGraphNode(e.target.value)} className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:border-slate-500 focus:ring focus:ring-slate-200">
                       {devices.filter(d => d.status !== 'pending').map(d => (
                         <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>
                       ))}
@@ -298,39 +278,15 @@ export default function App() {
                 
                 <div className="h-64 w-full">
                   {telemetryData.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-slate-400">
-                      Waiting for telemetry data...
-                    </div>
+                    <div className="h-full flex items-center justify-center text-slate-400">Waiting for telemetry data...</div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={telemetryData} margin={{ top: 5, right: 20, left: -20, bottom: 0 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis 
-                          dataKey="time" 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#64748b', fontSize: 12 }} 
-                          dy={10} 
-                        />
-                        <YAxis 
-                          axisLine={false} 
-                          tickLine={false} 
-                          tick={{ fill: '#64748b', fontSize: 12 }} 
-                        />
-                        <Tooltip 
-                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                          cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '3 3' }}
-                        />
-                        <Line 
-                          type="monotone" 
-                          dataKey="power" 
-                          name="Power (W)"
-                          stroke="#3b82f6" 
-                          strokeWidth={3} 
-                          dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} 
-                          activeDot={{ r: 6, fill: '#3b82f6' }} 
-                          isAnimationActive={false} /* ปิด Animation ตอนรีเฟรชบ่อยๆ เพื่อความลื่นไหล */
-                        />
+                        <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} dy={10} />
+                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                        <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '3 3' }} />
+                        <Line type="monotone" dataKey="power" name="Power (W)" stroke="#3b82f6" strokeWidth={3} dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} activeDot={{ r: 6, fill: '#3b82f6' }} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
@@ -339,12 +295,7 @@ export default function App() {
 
             </div>
           )}
-
-          {activeTab !== 'dashboard' && (
-            <div className="flex items-center justify-center h-full text-slate-400">
-              <p>Module under construction.</p>
-            </div>
-          )}
+          {activeTab !== 'dashboard' && <div className="flex items-center justify-center h-full text-slate-400"><p>Module under construction.</p></div>}
         </div>
       </main>
     </div>
