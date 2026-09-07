@@ -1,113 +1,88 @@
 import socket
 import json
-import threading
 import time
-from datetime import datetime
+import threading
+import sys
+import random
 
-# Node Config
-DEVICE_ID = "lighting-node-001"
-DEVICE_TYPE = "lighting"
-
-# Simulated ESP-NOW Settings
-GATEWAY_IP = "127.0.0.1"
+GATEWAY_IP = '127.0.0.1'
 GATEWAY_PORT = 5000
-NODE_IP = "127.0.0.1"
-NODE_PORT = 5001
+NODE_IP = '127.0.0.1'
 
-node_metadata = {
-    "device_id": DEVICE_ID,
-    "device_type": DEVICE_TYPE,
-    "device_name": "Lighting Node 001",
-    "firmware_version": "1.0.0",
-    "capabilities": [
-        "lighting_control",
-        "power_monitoring"
-    ]
-}
-
-# State ตัวแปรสำหรับการส่ง Telemetry
-is_configured = False
-telemetry_interval = 5  # ค่าเริ่มต้น หากยังไม่ได้ Config
-
-def esp_now_listener():
-    """จำลองการรอรับข้อมูล Configuration จาก Gateway ผ่าน ESP-NOW"""
-    global is_configured, telemetry_interval
-    
+def run_node(device_id, device_type, node_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind((NODE_IP, NODE_PORT))
-    print(f"[Node] Listening for Simulated ESP-NOW on {NODE_IP}:{NODE_PORT}...")
+    sock.bind((NODE_IP, node_port))
 
-    while True:
-        data, addr = sock.recvfrom(2048)
-        try:
-            packet = json.loads(data.decode())
-            if packet.get("type") == "config":
-                config_payload = packet.get("payload", {})
-                print("\n" + "="*50)
-                print(f"[Node] SUCCESS! Received Configuration via Gateway:")
-                print(json.dumps(config_payload, indent=2))
-                print("="*50 + "\n")
-                
-                # อัปเดตการทำงานของ Node ตาม Config ที่ได้รับ
-                if "telemetry_interval" in config_payload:
-                    telemetry_interval = config_payload["telemetry_interval"]
-                is_configured = True
-                
-        except Exception as e:
-            print(f"[Node] Error parsing incoming packet: {e}")
-
-def send_metadata_to_gateway():
-    """ส่ง Metadata ให้ Gateway ผ่าน ESP-NOW"""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    esp_now_packet = {
-        "type": "metadata",
-        "payload": node_metadata,
-        "reply_port": NODE_PORT
+    # สถานะของเครื่อง (is_configured = false แบบฮาร์ดแวร์จริง)
+    state = {
+        "is_configured": False,
+        "telemetry_interval": 5
     }
-    print(f"[Node] Sending Metadata to Gateway via Simulated ESP-NOW...")
-    sock.sendto(json.dumps(esp_now_packet).encode(), (GATEWAY_IP, GATEWAY_PORT))
-    sock.close()
 
-def send_telemetry_to_gateway():
-    """จำลองการส่งข้อมูลเซ็นเซอร์ให้ Gateway"""
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    
-    # ข้อมูลจำลอง
-    payload = {
-        "device_id": DEVICE_ID,
-        "timestamp": datetime.now().isoformat(),
-        "data": {
-            "light_status": "ON",
-            "power_usage_watts": 15.5
-        }
-    }
-    
-    esp_now_packet = {
-        "type": "telemetry",
-        "payload": payload
-    }
-    
-    print(f"[Node] Sending Telemetry... (Power: 15.5 W)")
-    sock.sendto(json.dumps(esp_now_packet).encode(), (GATEWAY_IP, GATEWAY_PORT))
-    sock.close()
-
-def main():
-    listener_thread = threading.Thread(target=esp_now_listener, daemon=True)
-    listener_thread.start()
-    
-    time.sleep(1) 
-    send_metadata_to_gateway()
-
-    try:
+    # ฟังก์ชันรอรับ Config
+    def listen_for_config():
         while True:
-            time.sleep(telemetry_interval)
-            # จะส่ง Telemetry ก็ต่อเมื่อได้รับการ Approve และได้ Config แล้ว
-            if is_configured:
-                send_telemetry_to_gateway()
-            else:
-                print("[Node] Waiting for configuration before sending telemetry...")
-    except KeyboardInterrupt:
-        print("\n[Node] Shutting down.")
+            data, addr = sock.recvfrom(1024)
+            try:
+                msg = json.loads(data.decode())
+                if msg.get("type") == "config":
+                    payload = msg.get("payload", {})
+                    if isinstance(payload, str):
+                        payload = json.loads(payload)
+                        
+                    print(f"\n========================================")
+                    print(f"[Node] SUCCESS! Received Configuration:")
+                    print(json.dumps(payload, indent=2))
+                    print(f"========================================\n")
+                    
+                    if "telemetry_interval" in payload:
+                        state["telemetry_interval"] = int(payload["telemetry_interval"])
+                    
+                    state["is_configured"] = True
+            except Exception as e:
+                print(f"Error parsing Config: {e}")
+
+    threading.Thread(target=listen_for_config, daemon=True).start()
+    print(f"[Node] Started {device_id} ({device_type}) on port {node_port}")
+
+    # Main Loop (เทียบเท่า void loop())
+    while True:
+        if not state["is_configured"]:
+            # ส่ง Metadata (Exponential backoff 5 วิ แบบย่อ)
+            metadata = {
+                "type": "metadata",
+                "payload": {
+                    "device_id": device_id,
+                    "device_type": device_type,
+                    "firmware_version": "1.0.0-sim"
+                }
+            }
+            sock.sendto(json.dumps(metadata).encode(), (GATEWAY_IP, GATEWAY_PORT))
+            print("[Node] Sent Metadata via ESP-NOW Broadcast (Waiting for Config...)")
+            time.sleep(5) 
+        else:
+            # ส่ง Telemetry
+            telemetry = {
+                "type": "telemetry",
+                "payload": {
+                    "device_id": device_id,
+                    "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                    "data": {
+                        "status": "ON" if device_type in ["lighting", "air_control"] else "DETECTED",
+                        "power_usage_watts": round(random.uniform(10.0, 20.0), 2)
+                    }
+                }
+            }
+            sock.sendto(json.dumps(telemetry).encode(), (GATEWAY_IP, GATEWAY_PORT))
+            print(f"[Node] Sent Telemetry (Power: {telemetry['payload']['data']['power_usage_watts']} W)")
+            time.sleep(state["telemetry_interval"])
 
 if __name__ == "__main__":
-    main()
+    # สามารถพิมพ์ Argument ต่อท้ายคำสั่งรันเพื่อสร้าง Node หลายตัวได้
+    d_id = sys.argv[1] if len(sys.argv) > 1 else "sim-lighting-01"
+    d_type = sys.argv[2] if len(sys.argv) > 2 else "lighting"
+    # สุ่ม Port เพื่อให้รัน Node หลายตัวพร้อมกันในเครื่องเดียวได้
+    port = int(sys.argv[3]) if len(sys.argv) > 3 else random.randint(6000, 7000)
+    
+    run_node(d_id, d_type, port)
+    
