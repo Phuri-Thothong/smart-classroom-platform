@@ -1,32 +1,72 @@
-import React, { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, 
   Clock, 
   Users, 
   Zap, 
   UserCheck,
-  Power,
-  AlertTriangle,
   ServerCrash,
   Lightbulb,
-  Wind
+  Wind,
+  CheckCircle
 } from 'lucide-react';
+
+const API_BASE_URL = "http://localhost:8000";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  
-  // State จำลองสำหรับอุปกรณ์ (ครอบคลุม 4 ประเภทโหนด)
-  const [devices, setDevices] = useState([
-    { id: 'light-001', name: 'Front Lighting', type: 'Lighting Node', status: 'online', isOn: true, controllable: true },
-    { id: 'ac-001', name: 'Air Conditioner 1', type: 'Air Control Node', status: 'online', isOn: false, controllable: true },
-    { id: 'occ-001', name: 'Ceiling Radar (HLK-LD2410)', type: 'Occupancy Node', status: 'online', isOn: true, controllable: false },
-    { id: 'energy-001', name: 'Main Power Meter', type: 'Energy Node', status: 'offline', isOn: false, controllable: false },
-  ]);
+  const [devices, setDevices] = useState([]);
+  const [isBackendOnline, setIsBackendOnline] = useState(true);
 
+  // เปลี่ยนมาใช้ .then() และ .catch() แทน async/await เพื่อแก้ Warning
+  const fetchDevices = useCallback(() => {
+    fetch(`${API_BASE_URL}/devices`)
+      .then((response) => {
+        if (!response.ok) throw new Error("Network response was not ok");
+        return response.json();
+      })
+      .then((data) => {
+        setDevices(data);
+        setIsBackendOnline(true);
+      })
+      .catch((error) => {
+        console.error("Error fetching devices:", error);
+        setIsBackendOnline(false);
+      });
+  }, []);
+
+  // ดึงข้อมูลครั้งแรก และตั้งเวลาดึงข้อมูลใหม่ทุกๆ 5 วินาที
+  useEffect(() => {
+    fetchDevices();
+    const interval = setInterval(fetchDevices, 5000);
+    return () => clearInterval(interval);
+  }, [fetchDevices]);
+
+  // ฟังก์ชันกด Approve อุปกรณ์ (ใช้ Promise เช่นเดียวกัน)
+  const approveDevice = (deviceId) => {
+    fetch(`${API_BASE_URL}/devices/${deviceId}/approve`, { method: 'POST' })
+      .then(() => {
+        fetchDevices(); // ดึงข้อมูลใหม่ทันทีหลังกด Approve สำเร็จ
+      })
+      .catch((error) => {
+        console.error("Error approving device:", error);
+        alert("Failed to approve device.");
+      });
+  };
+
+  // ฟังก์ชันจำลองการกดเปิด-ปิด
   const toggleDevice = (id) => {
-    setDevices(devices.map(dev => 
-      dev.id === id && dev.status === 'online' && dev.controllable ? { ...dev, isOn: !dev.isOn } : dev
-    ));
+    console.log(`Toggle command sent for ${id}`);
+  };
+
+  // ตัวช่วยเลือก Icon ตามประเภทอุปกรณ์
+  const getDeviceIcon = (deviceType) => {
+    if (!deviceType) return <Zap size={20} />;
+    const type = deviceType.toLowerCase();
+    if (type.includes('light')) return <Lightbulb size={20} />;
+    if (type.includes('air')) return <Wind size={20} />;
+    if (type.includes('occupancy') || type.includes('radar')) return <UserCheck size={20} />;
+    return <Zap size={20} />;
   };
 
   return (
@@ -69,9 +109,9 @@ export default function App() {
         <header className="h-16 bg-white shadow-sm flex items-center justify-between px-8 z-10">
           <h2 className="text-xl font-semibold text-slate-800 capitalize">{activeTab}</h2>
           <div className="flex items-center space-x-3">
-            <div className="flex items-center px-3 py-1 bg-green-50 text-green-700 rounded-full text-sm font-medium border border-green-200">
-              <span className="w-2 h-2 rounded-full bg-green-500 mr-2 animate-pulse"></span>
-              Platform Online
+            <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium border ${isBackendOnline ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+              <span className={`w-2 h-2 rounded-full mr-2 ${isBackendOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+              {isBackendOnline ? 'Platform Online' : 'Backend Disconnected'}
             </div>
           </div>
         </header>
@@ -82,7 +122,7 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <div className="max-w-7xl mx-auto space-y-6">
               
-              {/* 1. Real-time Overview (Grid for 4 Node Types) */}
+              {/* 1. Real-time Overview (Grid) */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center">
                   <div className="p-4 bg-green-50 text-green-600 rounded-lg mr-4"><UserCheck size={28} /></div>
@@ -116,41 +156,63 @@ export default function App() {
 
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 
-                {/* 2. Device Node Registry & Control (Cards) */}
+                {/* 2. Device Node Registry & Control */}
                 <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-                  <h3 className="text-lg font-semibold text-slate-800 mb-4">Node Registry & Control</h3>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {devices.map((device) => (
-                      <div key={device.id} className="flex items-center justify-between p-4 border border-slate-100 rounded-lg bg-slate-50">
-                        <div className="flex items-center space-x-4">
-                          <div className={`p-2 rounded-md ${device.status === 'online' ? 'bg-slate-700 text-white' : 'bg-slate-200 text-slate-500'}`}>
-                            {device.type === 'Lighting Node' ? <Lightbulb size={20} /> :
-                             device.type === 'Air Control Node' ? <Wind size={20} /> :
-                             device.type === 'Occupancy Node' ? <UserCheck size={20} /> : <Zap size={20} />}
-                          </div>
-                          <div>
-                            <p className="font-medium text-slate-800">{device.name}</p>
-                            <div className="flex items-center mt-1">
-                              <span className={`w-2 h-2 rounded-full mr-1.5 ${device.status === 'online' ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                              <span className="text-xs text-slate-500">{device.type}</span>
-                            </div>
-                          </div>
-                        </div>
-                        {/* Render Toggle Button only for Controllable Nodes */}
-                        {device.controllable ? (
-                          <button 
-                            onClick={() => toggleDevice(device.id)}
-                            disabled={device.status === 'offline'}
-                            className={`w-12 h-6 rounded-full transition-colors relative flex items-center ${device.status === 'offline' ? 'bg-slate-200 cursor-not-allowed' : device.isOn ? 'bg-slate-700' : 'bg-slate-300'}`}
-                          >
-                            <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform ${device.isOn ? 'translate-x-7' : 'translate-x-1'}`}></div>
-                          </button>
-                        ) : (
-                          <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-200 px-2 py-1 rounded">Sensor</span>
-                        )}
-                      </div>
-                    ))}
+                  <div className="flex justify-between items-center mb-4">
+                    <h3 className="text-lg font-semibold text-slate-800">Node Registry & Control</h3>
+                    <span className="text-sm text-slate-500">Total Nodes: {devices.length}</span>
                   </div>
+                  
+                  {devices.length === 0 ? (
+                    <div className="text-center py-8 text-slate-400">
+                      <p>No devices registered in database.</p>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {devices.map((device) => {
+                        const isOnline = true; 
+                        const isPending = device.status === 'pending';
+                        
+                        return (
+                          <div key={device.node_id} className={`flex items-center justify-between p-4 border rounded-lg ${isPending ? 'bg-yellow-50 border-yellow-200' : 'bg-slate-50 border-slate-100'}`}>
+                            <div className="flex items-center space-x-4">
+                              <div className={`p-2 rounded-md ${isPending ? 'bg-yellow-200 text-yellow-700' : 'bg-slate-700 text-white'}`}>
+                                {getDeviceIcon(device.device_type)}
+                              </div>
+                              <div>
+                                <p className="font-medium text-slate-800">{device.device_name || device.node_id}</p>
+                                <div className="flex items-center mt-1">
+                                  <span className={`w-2 h-2 rounded-full mr-1.5 ${isPending ? 'bg-yellow-500' : (isOnline ? 'bg-green-500' : 'bg-red-500')}`}></span>
+                                  <span className="text-xs text-slate-500 uppercase tracking-wider">{isPending ? 'PENDING' : (device.device_type || 'Unknown')}</span>
+                                </div>
+                              </div>
+                            </div>
+                            
+                            {isPending ? (
+                              <button 
+                                onClick={() => approveDevice(device.node_id)}
+                                className="flex items-center px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold rounded shadow-sm transition-colors"
+                              >
+                                <CheckCircle size={14} className="mr-1" />
+                                Approve
+                              </button>
+                            ) : (
+                              (device.device_type === 'lighting' || device.device_type === 'air_control') ? (
+                                <button 
+                                  onClick={() => toggleDevice(device.node_id)}
+                                  className="w-12 h-6 rounded-full bg-slate-300 relative flex items-center transition-colors hover:bg-slate-400"
+                                >
+                                  <div className="w-4 h-4 bg-white rounded-full shadow-md transform translate-x-1"></div>
+                                </button>
+                              ) : (
+                                <span className="text-xs font-semibold text-slate-400 uppercase tracking-wider bg-slate-200 px-2 py-1 rounded">Sensor</span>
+                              )
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
                 </div>
 
                 {/* 3. Alerts & Notifications */}
@@ -162,13 +224,6 @@ export default function App() {
                       <div>
                         <p className="text-sm font-medium text-red-800">Energy Node Offline</p>
                         <p className="text-xs text-red-600 mt-1">Connection lost 10 mins ago.</p>
-                      </div>
-                    </div>
-                    <div className="flex items-start p-3 bg-yellow-50 border-l-4 border-yellow-500 rounded-r-lg">
-                      <AlertTriangle className="text-yellow-600 mt-0.5 mr-3" size={18} />
-                      <div>
-                        <p className="text-sm font-medium text-yellow-800">Unusual Power Spike</p>
-                        <p className="text-xs text-yellow-700 mt-1">Energy consumption exceeded 3000 W limit.</p>
                       </div>
                     </div>
                   </div>
