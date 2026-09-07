@@ -3,7 +3,7 @@ import threading
 from contextlib import asynccontextmanager
 
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uvicorn
@@ -21,6 +21,7 @@ PREFIX = "smart-classroom/psu_6610110598"
 MQTT_METADATA_TOPIC = f"{PREFIX}/nodes/+/metadata"
 MQTT_CONFIG_TOPIC = f"{PREFIX}/nodes/{{}}/config"
 MQTT_TELEMETRY_TOPIC = f"{PREFIX}/nodes/+/telemetry"
+MQTT_COMMAND_TOPIC = f"{PREFIX}/nodes/{{}}/command"
 
 mqtt_client = None
 
@@ -126,7 +127,7 @@ app.add_middleware(
 )
 
 # =========================================================
-# REST API (เชื่อมต่อกับ Database)
+# REST API (เชื่อมต่อกับ Database และ MQTT)
 # =========================================================
 
 @app.get("/")
@@ -149,17 +150,14 @@ def get_device_api(device_id: str, db: Session = Depends(get_db)):
 @app.post("/devices/{device_id}/approve")
 def approve_device_api(device_id: str, db: Session = Depends(get_db)):
     """อนุมัติอุปกรณ์และส่ง Configuration ผ่าน MQTT"""
-    # 1. ค้นหาใน Database
     node = db.query(Node).filter(Node.node_id == device_id).first()
     if not node:
         return {"error": "Device not found"}
     
-    # 2. เปลี่ยนสถานะใน DB
     node.status = "approved"
     db.commit()
     db.refresh(node)
     
-    # 3. เตรียม Configuration
     config = {
         "device_id": device_id,
         "config_version": 1,
@@ -168,7 +166,6 @@ def approve_device_api(device_id: str, db: Session = Depends(get_db)):
         "enabled": True
     }
     
-    # 4. ส่ง MQTT ไปหา Node
     topic = MQTT_CONFIG_TOPIC.format(device_id)
     if mqtt_client:
         mqtt_client.publish(topic, json.dumps(config))
@@ -183,5 +180,27 @@ def get_telemetry_api(device_id: str, limit: int = 10, db: Session = Depends(get
                 .order_by(Telemetry.telemetry_id.desc()).limit(limit).all()
     return records
 
+@app.post("/devices/{device_id}/control")
+async def control_device_api(device_id: str, request: Request):
+    """รับคำสั่งควบคุมอุปกรณ์จาก Web UI และส่งผ่าน MQTT"""
+    body = await request.json()
+    action = body.get("action", "OFF")
+    
+    payload = {
+        "type": "command",
+        "payload": {
+            "device_id": device_id,
+            "action": action
+        }
+    }
+    
+    topic = MQTT_COMMAND_TOPIC.format(device_id)
+    if mqtt_client:
+        mqtt_client.publish(topic, json.dumps(payload))
+        print(f"\n[Platform] Command '{action}' sent to {topic}")
+        
+    return {"status": "success", "message": f"Command {action} sent to {device_id}"}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    
