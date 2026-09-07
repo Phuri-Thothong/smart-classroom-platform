@@ -4,6 +4,7 @@ import time
 import threading
 import sys
 import random
+import os
 
 GATEWAY_IP = '127.0.0.1'
 GATEWAY_PORT = 5000
@@ -13,11 +14,24 @@ def run_node(device_id, device_type, node_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((NODE_IP, node_port))
 
-    # สถานะของเครื่อง (is_configured = false แบบฮาร์ดแวร์จริง)
+    # สถานะของเครื่อง
     state = {
         "is_configured": False,
         "telemetry_interval": 5
     }
+
+    # ==========================================
+    # 1. จำลองการอ่านค่าจาก EEPROM ตอนเปิดเครื่อง
+    # ==========================================
+    eeprom_file = f"eeprom_sim_{device_id}.json"
+    if os.path.exists(eeprom_file):
+        try:
+            with open(eeprom_file, 'r') as f:
+                saved_state = json.load(f)
+                state.update(saved_state)
+                print(f"[Node] BOOT: Restored state from Flash Memory (EEPROM)")
+        except Exception as e:
+            print(f"[Node] BOOT Error: Could not read EEPROM: {e}")
 
     # ฟังก์ชันรอรับ Config
     def listen_for_config():
@@ -39,16 +53,24 @@ def run_node(device_id, device_type, node_port):
                         state["telemetry_interval"] = int(payload["telemetry_interval"])
                     
                     state["is_configured"] = True
+
+                    # ==========================================
+                    # 2. จำลองการบันทึกค่าลง EEPROM เมื่อได้รับ Config
+                    # ==========================================
+                    with open(eeprom_file, 'w') as f:
+                        json.dump(state, f)
+                    print("[Node] State saved to Flash Memory (EEPROM).")
+
             except Exception as e:
                 print(f"Error parsing Config: {e}")
 
     threading.Thread(target=listen_for_config, daemon=True).start()
     print(f"[Node] Started {device_id} ({device_type}) on port {node_port}")
 
-    # Main Loop (เทียบเท่า void loop())
+    # Main Loop
     while True:
         if not state["is_configured"]:
-            # ส่ง Metadata (Exponential backoff 5 วิ แบบย่อ)
+            # ส่ง Metadata
             metadata = {
                 "type": "metadata",
                 "payload": {
@@ -78,10 +100,8 @@ def run_node(device_id, device_type, node_port):
             time.sleep(state["telemetry_interval"])
 
 if __name__ == "__main__":
-    # สามารถพิมพ์ Argument ต่อท้ายคำสั่งรันเพื่อสร้าง Node หลายตัวได้
     d_id = sys.argv[1] if len(sys.argv) > 1 else "sim-lighting-01"
     d_type = sys.argv[2] if len(sys.argv) > 2 else "lighting"
-    # สุ่ม Port เพื่อให้รัน Node หลายตัวพร้อมกันในเครื่องเดียวได้
     port = int(sys.argv[3]) if len(sys.argv) > 3 else random.randint(6000, 7000)
     
     run_node(d_id, d_type, port)
