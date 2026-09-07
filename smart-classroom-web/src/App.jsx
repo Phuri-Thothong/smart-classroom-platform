@@ -10,7 +10,6 @@ import {
   Wind,
   CheckCircle
 } from 'lucide-react';
-// นำเข้า Components จาก Recharts
 import { 
   LineChart, 
   Line, 
@@ -23,22 +22,16 @@ import {
 
 const API_BASE_URL = "http://localhost:8000";
 
-// ข้อมูลจำลองสำหรับวาดกราฟพลังงาน (เดี๋ยวเราจะดึงจาก API จริงในอนาคต)
-const mockEnergyData = [
-  { time: '08:00', power: 45 },
-  { time: '09:00', power: 120 },
-  { time: '10:00', power: 135 },
-  { time: '11:00', power: 140 },
-  { time: '12:00', power: 90 },
-  { time: '13:00', power: 150 },
-  { time: '14:00', power: 160 },
-];
-
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [devices, setDevices] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
+  
+  // State สำหรับจัดการข้อมูลกราฟ
+  const [telemetryData, setTelemetryData] = useState([]);
+  const [selectedGraphNode, setSelectedGraphNode] = useState('');
 
+  // ฟังก์ชันดึงข้อมูลอุปกรณ์
   const fetchDevices = useCallback(() => {
     fetch(`${API_BASE_URL}/devices`)
       .then((response) => {
@@ -48,24 +41,63 @@ export default function App() {
       .then((data) => {
         setDevices(data);
         setIsBackendOnline(true);
+        
+        // หากยังไม่ได้เลือก Node สำหรับกราฟ ให้เลือก Node แรกที่ไม่ได้สถานะ Pending
+        if (!selectedGraphNode) {
+          const activeNodes = data.filter(d => d.status !== 'pending');
+          if (activeNodes.length > 0) {
+            setSelectedGraphNode(activeNodes[0].node_id);
+          }
+        }
       })
       .catch((error) => {
         console.error("Error fetching devices:", error);
         setIsBackendOnline(false);
       });
-  }, []);
+  }, [selectedGraphNode]);
 
+  // ฟังก์ชันดึงข้อมูล Telemetry ของโหนดที่เลือกมาวาดกราฟ
+  const fetchTelemetry = useCallback(() => {
+    if (!selectedGraphNode) return;
+    
+    fetch(`${API_BASE_URL}/devices/${selectedGraphNode}/telemetry`)
+      .then(res => res.json())
+      .then(data => {
+        // จัดฟอร์แมตข้อมูลให้ตรงกับที่ Recharts ต้องการ
+        const formattedData = data.map(item => {
+          // เผื่อกรณีที่ Backend เก็บ data เป็น String ให้ parse เป็น Object ก่อน
+          const sensorData = typeof item.data === 'string' ? JSON.parse(item.data) : item.data;
+          const date = new Date(item.timestamp);
+          
+          return {
+            time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+            power: sensorData.power_usage_watts || 0
+          };
+        });
+        
+        // ตัดเอาเฉพาะ 20 จุดล่าสุดเพื่อให้กราฟดูไม่แน่นเกินไป
+        setTelemetryData(formattedData.slice(-20));
+      })
+      .catch(err => console.error("Error fetching telemetry:", err));
+  }, [selectedGraphNode]);
+
+  // รอบการดึงข้อมูล Devices
   useEffect(() => {
     fetchDevices();
     const interval = setInterval(fetchDevices, 5000);
     return () => clearInterval(interval);
   }, [fetchDevices]);
 
+  // รอบการดึงข้อมูล Telemetry
+  useEffect(() => {
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 5000);
+    return () => clearInterval(interval);
+  }, [fetchTelemetry]);
+
   const approveDevice = (deviceId) => {
     fetch(`${API_BASE_URL}/devices/${deviceId}/approve`, { method: 'POST' })
-      .then(() => {
-        fetchDevices(); 
-      })
+      .then(() => fetchDevices())
       .catch((error) => {
         console.error("Error approving device:", error);
         alert("Failed to approve device.");
@@ -238,57 +270,70 @@ export default function App() {
                     <div className="flex items-start p-3 bg-red-50 border-l-4 border-red-500 rounded-r-lg">
                       <ServerCrash className="text-red-500 mt-0.5 mr-3" size={18} />
                       <div>
-                        <p className="text-sm font-medium text-red-800">Energy Node Offline</p>
-                        <p className="text-xs text-red-600 mt-1">Connection lost 10 mins ago.</p>
+                        <p className="text-sm font-medium text-red-800">System Nominal</p>
+                        <p className="text-xs text-red-600 mt-1">No critical alerts detected.</p>
                       </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* 4. Data Visualization (Recharts) */}
+              {/* 4. Data Visualization (Recharts with Real Data) */}
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-semibold text-slate-800">Energy Consumption Trends</h3>
-                  <select className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:border-slate-500 focus:ring focus:ring-slate-200">
-                    <option>Today</option>
-                    <option>Last 7 Days</option>
-                  </select>
+                  <div className="flex space-x-2">
+                    <span className="text-sm text-slate-500 self-center">Node:</span>
+                    <select 
+                      value={selectedGraphNode}
+                      onChange={(e) => setSelectedGraphNode(e.target.value)}
+                      className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:border-slate-500 focus:ring focus:ring-slate-200"
+                    >
+                      {devices.filter(d => d.status !== 'pending').map(d => (
+                        <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
                 
-                {/* Recharts Container */}
                 <div className="h-64 w-full">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={mockEnergyData} margin={{ top: 5, right: 20, left: -20, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                      <XAxis 
-                        dataKey="time" 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: '#64748b', fontSize: 12 }} 
-                        dy={10} 
-                      />
-                      <YAxis 
-                        axisLine={false} 
-                        tickLine={false} 
-                        tick={{ fill: '#64748b', fontSize: 12 }} 
-                      />
-                      <Tooltip 
-                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-                        cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '3 3' }}
-                      />
-                      <Line 
-                        type="monotone" 
-                        dataKey="power" 
-                        name="Power (W)"
-                        stroke="#3b82f6" 
-                        strokeWidth={3} 
-                        dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} 
-                        activeDot={{ r: 6, fill: '#3b82f6' }} 
-                        animationDuration={1500} 
-                      />
-                    </LineChart>
-                  </ResponsiveContainer>
+                  {telemetryData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-slate-400">
+                      Waiting for telemetry data...
+                    </div>
+                  ) : (
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart data={telemetryData} margin={{ top: 5, right: 20, left: -20, bottom: 0 }}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <XAxis 
+                          dataKey="time" 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#64748b', fontSize: 12 }} 
+                          dy={10} 
+                        />
+                        <YAxis 
+                          axisLine={false} 
+                          tickLine={false} 
+                          tick={{ fill: '#64748b', fontSize: 12 }} 
+                        />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                          cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '3 3' }}
+                        />
+                        <Line 
+                          type="monotone" 
+                          dataKey="power" 
+                          name="Power (W)"
+                          stroke="#3b82f6" 
+                          strokeWidth={3} 
+                          dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} 
+                          activeDot={{ r: 6, fill: '#3b82f6' }} 
+                          isAnimationActive={false} /* ปิด Animation ตอนรีเฟรชบ่อยๆ เพื่อความลื่นไหล */
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  )}
                 </div>
               </div>
 
