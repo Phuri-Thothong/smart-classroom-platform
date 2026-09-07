@@ -10,15 +10,35 @@ import {
   Wind,
   CheckCircle
 } from 'lucide-react';
+// นำเข้า Components จาก Recharts
+import { 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  ResponsiveContainer 
+} from 'recharts';
 
 const API_BASE_URL = "http://localhost:8000";
+
+// ข้อมูลจำลองสำหรับวาดกราฟพลังงาน (เดี๋ยวเราจะดึงจาก API จริงในอนาคต)
+const mockEnergyData = [
+  { time: '08:00', power: 45 },
+  { time: '09:00', power: 120 },
+  { time: '10:00', power: 135 },
+  { time: '11:00', power: 140 },
+  { time: '12:00', power: 90 },
+  { time: '13:00', power: 150 },
+  { time: '14:00', power: 160 },
+];
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [devices, setDevices] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
 
-  // เปลี่ยนมาใช้ .then() และ .catch() แทน async/await เพื่อแก้ Warning
   const fetchDevices = useCallback(() => {
     fetch(`${API_BASE_URL}/devices`)
       .then((response) => {
@@ -35,18 +55,16 @@ export default function App() {
       });
   }, []);
 
-  // ดึงข้อมูลครั้งแรก และตั้งเวลาดึงข้อมูลใหม่ทุกๆ 5 วินาที
   useEffect(() => {
     fetchDevices();
     const interval = setInterval(fetchDevices, 5000);
     return () => clearInterval(interval);
   }, [fetchDevices]);
 
-  // ฟังก์ชันกด Approve อุปกรณ์ (ใช้ Promise เช่นเดียวกัน)
   const approveDevice = (deviceId) => {
     fetch(`${API_BASE_URL}/devices/${deviceId}/approve`, { method: 'POST' })
       .then(() => {
-        fetchDevices(); // ดึงข้อมูลใหม่ทันทีหลังกด Approve สำเร็จ
+        fetchDevices(); 
       })
       .catch((error) => {
         console.error("Error approving device:", error);
@@ -54,12 +72,10 @@ export default function App() {
       });
   };
 
-  // ฟังก์ชันจำลองการกดเปิด-ปิด
   const toggleDevice = (id) => {
     console.log(`Toggle command sent for ${id}`);
   };
 
-  // ตัวช่วยเลือก Icon ตามประเภทอุปกรณ์
   const getDeviceIcon = (deviceType) => {
     if (!deviceType) return <Zap size={20} />;
     const type = deviceType.toLowerCase();
@@ -122,7 +138,7 @@ export default function App() {
           {activeTab === 'dashboard' && (
             <div className="max-w-7xl mx-auto space-y-6">
               
-              {/* 1. Real-time Overview (Grid) */}
+              {/* 1. Real-time Overview */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex items-center">
                   <div className="p-4 bg-green-50 text-green-600 rounded-lg mr-4"><UserCheck size={28} /></div>
@@ -230,7 +246,7 @@ export default function App() {
                 </div>
               </div>
 
-              {/* 4. Data Visualization (Placeholder) */}
+              {/* 4. Data Visualization (Recharts) */}
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-semibold text-slate-800">Energy Consumption Trends</h3>
@@ -239,8 +255,40 @@ export default function App() {
                     <option>Last 7 Days</option>
                   </select>
                 </div>
-                <div className="h-64 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center bg-slate-50 text-slate-400">
-                  <p>[ Chart.js / Recharts Integration Area ]</p>
+                
+                {/* Recharts Container */}
+                <div className="h-64 w-full">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={mockEnergyData} margin={{ top: 5, right: 20, left: -20, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis 
+                        dataKey="time" 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#64748b', fontSize: 12 }} 
+                        dy={10} 
+                      />
+                      <YAxis 
+                        axisLine={false} 
+                        tickLine={false} 
+                        tick={{ fill: '#64748b', fontSize: 12 }} 
+                      />
+                      <Tooltip 
+                        contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                        cursor={{ stroke: '#cbd5e1', strokeWidth: 1, strokeDasharray: '3 3' }}
+                      />
+                      <Line 
+                        type="monotone" 
+                        dataKey="power" 
+                        name="Power (W)"
+                        stroke="#3b82f6" 
+                        strokeWidth={3} 
+                        dot={{ r: 4, strokeWidth: 2, fill: '#fff' }} 
+                        activeDot={{ r: 6, fill: '#3b82f6' }} 
+                        animationDuration={1500} 
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
 
