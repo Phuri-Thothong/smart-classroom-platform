@@ -179,21 +179,25 @@ def approve_device_api(device_id: str, db: Session = Depends(get_db)):
     node.status = "approved"
     db.commit()
     db.refresh(node)
-    
-    config = {
+
+    config_data = {
         "device_id": device_id,
         "config_version": 1,
         "sampling_interval": 5,
         "telemetry_interval": 10,
         "enabled": True
     }
+
+    payload = {
+        "type": "config",
+        "payload": config_data
+    }
     
     topic = MQTT_CONFIG_TOPIC.format(device_id)
     if mqtt_client:
-        mqtt_client.publish(topic, json.dumps(config))
+        mqtt_client.publish(topic, json.dumps(payload))
         print(f"\n[Platform] Configuration sent to {topic}")
-    
-    return {"device": node, "configuration": config}
+    return {"device": node, "configuration": config_data}
 
 @app.get("/devices/{device_id}/telemetry")
 def get_telemetry_api(device_id: str, limit: int = 10, db: Session = Depends(get_db)):
