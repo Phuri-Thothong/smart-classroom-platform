@@ -1,6 +1,7 @@
 import json
 import threading
 from contextlib import asynccontextmanager
+import datetime
 
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Depends, Request
@@ -76,11 +77,32 @@ def on_message(client, userdata, msg):
 
             # 2. จัดการ Telemetry
             elif msg.topic.endswith("/telemetry"):
-                print(f"[Platform] Processing Telemetry for {data.get('device_id')}")
+                device_id = data.get("device_id")
+                print(f"[Platform] Processing Telemetry for {device_id}")
+
+                # เช็กว่ามี Node นี้ในระบบหรือไม่
+                node = db.query(Node).filter(Node.node_id == device_id).first()
+                if not node:
+                    print(f"[Platform] WARNING: Unknown Node '{device_id}'. Sending RESET command.")
+                    # ส่งคำสั่ง RESET ไปให้โหนดเพื่อบังคับลงทะเบียนใหม่
+                    reset_payload = {
+                        "type": "command",
+                        "payload": {
+                            "device_id": device_id,
+                            "action": "RESET"
+                        }
+                    }
+                    client.publish(MQTT_COMMAND_TOPIC.format(device_id), json.dumps(reset_payload))
+                    return # ข้ามการบันทึกข้อมูลและจบการทำงานรอบนี้
+
+                # เช็กถ้า Node ส่งมาเป็น "auto" ให้ Backend ประทับเวลาของ Server แทน
+                node_timestamp = data.get("timestamp")
+                if not node_timestamp or node_timestamp == "auto":
+                    node_timestamp = datetime.datetime.now().isoformat()
                 
                 telemetry = Telemetry(
                     node_id=data.get("device_id"),
-                    timestamp=data.get("timestamp"),
+                    timestamp=node_timestamp,
                     data=data.get("data")
                 )
                 db.add(telemetry)

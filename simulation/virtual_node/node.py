@@ -56,7 +56,14 @@ def run_node(device_id, device_type, node_port):
                     payload = msg.get("payload", {})
                     action = payload.get("action", "OFF")
                     print(f"\n[Node] >>> COMMAND RECEIVED: Turned {action} <<<")
-                    state["device_status"] = action
+                    
+                    if action == "RESET":
+                        print("[Node] Factory Reset triggered by Platform! Clearing EEPROM...")
+                        state["is_configured"] = False
+                        if os.path.exists(eeprom_file):
+                            os.remove(eeprom_file) # ลบไฟล์ความจำทิ้ง
+                    else:
+                        state["device_status"] = action
 
             except Exception as e:
                 print(f"Error parsing UDP: {e}")
