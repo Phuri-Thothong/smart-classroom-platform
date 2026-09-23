@@ -7,7 +7,6 @@ import random
 import os
 
 GATEWAY_IP = '127.0.0.1'
-GATEWAY_PORT = 5000
 NODE_IP = '127.0.0.1'
 
 def run_node(device_id, device_type, node_port, gateway_port):
@@ -17,7 +16,7 @@ def run_node(device_id, device_type, node_port, gateway_port):
     state = {
         "is_configured": False,
         "telemetry_interval": 5,
-        "device_status": "OFF" # เพิ่มตัวแปรเก็บสถานะการเปิด/ปิดอุปกรณ์
+        "device_status": "OFF"
     }
 
     eeprom_file = f"eeprom_sim_{device_id}.json"
@@ -30,7 +29,6 @@ def run_node(device_id, device_type, node_port, gateway_port):
         except Exception as e:
             print(f"[Node] BOOT Error: Could not read EEPROM: {e}")
 
-    # ฟังก์ชันรอรับ Config และ Command
     def udp_listener():
         while True:
             try:
@@ -51,7 +49,6 @@ def run_node(device_id, device_type, node_port, gateway_port):
                     with open(eeprom_file, 'w') as f:
                         json.dump(state, f)
 
-                # รับคำสั่ง Control จากหน้าเว็บ
                 elif msg_type == "command":
                     payload = msg.get("payload", {})
                     action = payload.get("action", "OFF")
@@ -61,7 +58,7 @@ def run_node(device_id, device_type, node_port, gateway_port):
                         print("[Node] Factory Reset triggered by Platform! Clearing EEPROM...")
                         state["is_configured"] = False
                         if os.path.exists(eeprom_file):
-                            os.remove(eeprom_file) # ลบไฟล์ความจำทิ้ง
+                            os.remove(eeprom_file)
                     else:
                         state["device_status"] = action
 
@@ -71,7 +68,7 @@ def run_node(device_id, device_type, node_port, gateway_port):
                 print(f"Error parsing UDP: {e}")
 
     threading.Thread(target=udp_listener, daemon=True).start()
-    print(f"[Node] Started {device_id} ({device_type}) on port {node_port}")
+    print(f"[Node] Started {device_id} ({device_type}) on port {node_port} targeting Gateway port {gateway_port}")
 
     # Main Loop
     while True:
@@ -84,15 +81,14 @@ def run_node(device_id, device_type, node_port, gateway_port):
                     "firmware_version": "1.0.0-sim"
                 }
             }
-            sock.sendto(json.dumps(metadata).encode(), (GATEWAY_IP, GATEWAY_PORT))
+            sock.sendto(json.dumps(metadata).encode(), (GATEWAY_IP, gateway_port))
             print(f"[Node: {device_id}] Sent Metadata via ESP-NOW Broadcast")
             time.sleep(5) 
         else:
-            # คำนวณการใช้ไฟตามสถานะ
             if state["device_status"] == "ON":
-                power = round(random.uniform(50.0, 70.0), 2) # ถ้าเปิด กินไฟ 50-70W
+                power = round(random.uniform(50.0, 70.0), 2)
             else:
-                power = 0.0 # ถ้าปิด กินไฟ 0W
+                power = 0.0
 
             telemetry = {
                 "type": "telemetry",
@@ -105,9 +101,9 @@ def run_node(device_id, device_type, node_port, gateway_port):
                     }
                 }
             }
-            sock.sendto(json.dumps(telemetry).encode(), (GATEWAY_IP, GATEWAY_PORT))
+            sock.sendto(json.dumps(telemetry).encode(), (GATEWAY_IP, gateway_port))
             print(f"[Node: {device_id}] Sent Telemetry (Status: {state['device_status']}, Power: {power} W)")
-            # Multi-Node Scalability: เพิ่ม Random Jitter (0.1 ถึง 2.0 วินาที)
+            
             jitter = round(random.uniform(0.1, 2.0), 2)
             sleep_time = state["telemetry_interval"] + jitter
             print(f"[Node: {device_id}] Next transmission in {sleep_time:.2f} seconds (included {jitter:.2f}s jitter)")
@@ -117,7 +113,6 @@ if __name__ == "__main__":
     d_id = sys.argv[1] if len(sys.argv) > 1 else "sim-lighting-01"
     d_type = sys.argv[2] if len(sys.argv) > 2 else "lighting"
     port = int(sys.argv[3]) if len(sys.argv) > 3 else random.randint(6000, 7000)
-    g_port = int(sys.argv[4]) if len(sys.argv) > 4 else 5000
+    g_port = int(sys.argv[4]) if len(sys.argv) > 4 else 5000 
     
     run_node(d_id, d_type, port, g_port)
-    

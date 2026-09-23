@@ -35,8 +35,8 @@ sock.bind((UDP_IP, UDP_PORT))
 # ==========================================
 # MQTT Callbacks
 # ==========================================
-def on_connect(client, userdata, flags, rc):
-    logger.info(f"[MQTT] Connected to Cloud (Code {rc})")
+def on_connect(client, userdata, flags, reason_code, properties):
+    logger.info(f"[MQTT] Connected to Cloud (Code {reason_code})")
     client.subscribe(f"{PREFIX}/nodes/+/config")
     client.subscribe(f"{PREFIX}/nodes/+/command")
     logger.info("[MQTT] Subscribed to Config & Command topics")
@@ -63,7 +63,7 @@ def on_message(client, userdata, msg):
             else:
                 logger.warning(f"[Gateway] Error: No local address found for {device_id}")
 
-mqtt_client = mqtt.Client()
+mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
 

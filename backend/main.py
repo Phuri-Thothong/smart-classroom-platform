@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import datetime
 from pydantic import BaseModel
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI, Depends, Request
+from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uvicorn
