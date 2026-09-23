@@ -12,8 +12,6 @@ export default function App() {
   const [devices, setDevices] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
   const [telemetryData, setTelemetryData] = useState([]);
-  
-  // State ที่เก็บสิ่งที่ User "ตั้งใจ" เลือก
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [deviceStatus, setDeviceStatus] = useState({});
 
@@ -44,6 +42,10 @@ export default function App() {
     const isValid = graphNodes.some(n => n.node_id === selectedGraphNode);
     return isValid ? selectedGraphNode : graphNodes[0].node_id;
   }, [graphNodes, selectedGraphNode]);
+
+  const offlineCount = useMemo(() => {
+    return filteredDevices.filter(d => d.status === 'offline').length;
+  }, [filteredDevices]);
 
   const fetchTelemetry = useCallback(() => {
     if (!activeGraphNode) return;
@@ -140,7 +142,7 @@ export default function App() {
     try {
       const res = await fetch(`${API_BASE_URL}/devices/${deviceId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Failed to delete device");
-      fetchDevices(); // รีเฟรชข้อมูลหลังลบสำเร็จ
+      fetchDevices();
     } catch (error) {
       console.error("Delete Error:", error);
       alert("Failed to delete device.");
@@ -221,18 +223,23 @@ export default function App() {
                         ) : (
                           filteredDevices.map(device => {
                             const isPending = device.status === 'pending';
+                            const isOffline = device.status === 'offline';
                             const isOn = deviceStatus[device.node_id] || false;
                             const isController = device.device_type === 'lighting' || device.device_type === 'air_control';
+                            const iconBgColor = isPending ? 'bg-yellow-100 text-yellow-600' : isOffline ? 'bg-slate-100 text-slate-400' : 'bg-blue-100 text-blue-600';
+                            const badgeColor = isPending ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : isOffline ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-green-50 text-green-700 border-green-200';
+                            const dotColor = isPending ? 'bg-yellow-500' : isOffline ? 'bg-slate-400' : 'bg-green-500';
+                            const statusText = isPending ? 'Pending' : isOffline ? 'Offline' : 'Active';
 
                             return (
-                              <tr key={device.node_id} className="hover:bg-slate-50 transition-colors">
+                              <tr key={device.node_id} className={`hover:bg-slate-50 transition-colors ${isOffline ? 'opacity-70' : ''}`}>
                                 <td className="p-4">
                                   <div className="flex items-center space-x-3">
-                                    <div className={`p-2 rounded-lg ${isPending ? 'bg-yellow-100 text-yellow-600' : 'bg-blue-100 text-blue-600'}`}>
+                                    <div className={`p-2 rounded-lg ${iconBgColor}`}>
                                       {getDeviceIcon(device.device_type)}
                                     </div>
                                     <div>
-                                      <p className="font-medium text-slate-800">{device.device_name || device.node_id}</p>
+                                      <p className={`font-medium ${isOffline ? 'text-slate-500' : 'text-slate-800'}`}>{device.device_name || device.node_id}</p>
                                       <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
                                         <span>{device.node_id}</span>
                                         {device.room_id && (
@@ -246,9 +253,9 @@ export default function App() {
                                   <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded uppercase">{device.device_type}</span>
                                 </td>
                                 <td className="p-4">
-                                  <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium ${isPending ? 'bg-yellow-50 text-yellow-700 border border-yellow-200' : 'bg-green-50 text-green-700 border border-green-200'}`}>
-                                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${isPending ? 'bg-yellow-500' : 'bg-green-500'}`}></span>
-                                    {isPending ? 'Pending' : 'Active'}
+                                  <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${badgeColor}`}>
+                                    <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotColor}`}></span>
+                                    {statusText}
                                   </span>
                                 </td>
                                 <td className="p-4 text-right flex justify-end items-center h-full space-x-3">
@@ -257,8 +264,12 @@ export default function App() {
                                       <CheckCircle size={14} className="mr-1" /> Approve
                                     </button>
                                   ) : isController ? (
-                                    <button onClick={() => toggleDevice(device.node_id, isOn)} className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn ? 'bg-blue-600' : 'bg-slate-300'}`}>
-                                      <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn ? 'translate-x-6' : 'translate-x-1'}`}></div>
+                                    <button 
+                                      onClick={() => toggleDevice(device.node_id, isOn)} 
+                                      disabled={isOffline}
+                                      className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed opacity-50' : ''}`}
+                                    >
+                                      <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
                                     </button>
                                   ) : (
                                     <span className="text-xs text-slate-400">View Only</span>
@@ -279,12 +290,20 @@ export default function App() {
 
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
                   <h3 className="text-lg font-semibold text-slate-800 mb-4">System Alerts</h3>
-                  <div className="flex-1 flex items-center justify-center border-2 border-dashed border-slate-100 rounded-lg p-6">
-                    <div className="text-center">
-                      <ServerCrash className="mx-auto text-slate-300 mb-2" size={32} />
-                      <p className="text-sm font-medium text-slate-500">No critical issues</p>
-                      <p className="text-xs text-slate-400 mt-1">All systems operational</p>
-                    </div>
+                  <div className={`flex-1 flex items-center justify-center border-2 border-dashed rounded-lg p-6 ${offlineCount > 0 ? 'border-red-100 bg-red-50/50' : 'border-slate-100'}`}>
+                    {offlineCount > 0 ? (
+                      <div className="text-center">
+                        <ServerCrash className="mx-auto text-red-500 mb-2" size={32} />
+                        <p className="text-sm font-semibold text-red-700">{offlineCount} Device{offlineCount > 1 ? 's' : ''} Offline</p>
+                        <p className="text-xs text-red-500 mt-1">Connection lost. Check power or network.</p>
+                      </div>
+                    ) : (
+                      <div className="text-center">
+                        <CheckCircle className="mx-auto text-emerald-400 mb-2" size={32} />
+                        <p className="text-sm font-medium text-emerald-600">No critical issues</p>
+                        <p className="text-xs text-slate-400 mt-1">All systems operational</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

@@ -1,7 +1,8 @@
 import json
 import threading
 from contextlib import asynccontextmanager
-import datetime
+from datetime import datetime
+from sqlalchemy import desc
 from pydantic import BaseModel
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Depends, Request, HTTPException
@@ -162,9 +163,43 @@ def root():
     return {"status": "running"}
 
 @app.get("/devices")
-def get_all_devices_api(db: Session = Depends(get_db)):
-    """ดึงข้อมูล Node ทั้งหมดจาก Database"""
-    return db.query(Node).all()
+def get_devices(db: Session = Depends(get_db)):
+    nodes = db.query(Node).all()
+    result = []
+    current_time = datetime.utcnow()
+    for node in nodes:
+        node_data = {
+            "node_id": node.node_id,
+            "room_id": node.room_id,
+            "gateway_id": node.gateway_id,
+            "device_type": node.device_type,
+            "device_name": node.device_name,
+            "firmware_version": node.firmware_version,
+            "status": node.status,
+        }
+        if node.status != "pending":
+            latest_tel = db.query(Telemetry).filter(Telemetry.node_id == node.node_id).order_by(desc(Telemetry.timestamp)).first()
+            if latest_tel and latest_tel.timestamp:
+                try:
+                    # ตรวจสอบว่าเป็น String หรือไม่ ถ้าใช่ให้แปลงกลับเป็น datetime ก่อน
+                    if isinstance(latest_tel.timestamp, str):
+                        # แปลงจากรูปแบบ ISO 8601 (เช่น "2026-09-23T15:30:00Z")
+                        time_str = latest_tel.timestamp.replace("Z", "")
+                        tel_time = datetime.fromisoformat(time_str)
+                    else:
+                        tel_time = latest_tel.timestamp.replace(tzinfo=None)
+                    time_diff = current_time - tel_time
+                    if time_diff.total_seconds() > 15:
+                        node_data["status"] = "offline"
+                    else:
+                        node_data["status"] = "active"
+                except Exception as e:
+                    print(f"Error parsing timestamp for node {node.node_id}: {e}")
+                    node_data["status"] = "offline"
+            else:
+                node_data["status"] = "offline"
+        result.append(node_data)
+    return result
 
 @app.get("/devices/{device_id}")
 def get_device_api(device_id: str, db: Session = Depends(get_db)):
