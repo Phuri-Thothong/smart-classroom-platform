@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, Clock, Users, Zap, UserCheck,
-  ServerCrash, Lightbulb, Wind, CheckCircle, Activity
+  ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -14,6 +14,16 @@ export default function App() {
   const [telemetryData, setTelemetryData] = useState([]);
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [deviceStatus, setDeviceStatus] = useState({});
+  const [selectedRoom, setSelectedRoom] = useState('All');
+  const [selectedType, setSelectedType] = useState('All');
+
+  const uniqueRooms = ['All', ...new Set(devices.map(d => d.room_id).filter(Boolean))];
+
+  const filteredDevices = devices.filter(d => {
+    const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;
+    const matchType = selectedType === 'All' || (d.device_type && d.device_type.toLowerCase().includes(selectedType.toLowerCase().replace(' ', '_')));
+    return matchRoom && matchType;
+  });
 
   const fetchDevices = useCallback(() => {
     fetch(`${API_BASE_URL}/devices`)
@@ -30,7 +40,7 @@ export default function App() {
         }
       })
       .catch((err) => {
-        console.error("Error:", err);
+        console.error("Fetch Error:", err);
         setIsBackendOnline(false);
       });
   }, [selectedGraphNode]);
@@ -131,13 +141,43 @@ export default function App() {
             <div className="max-w-7xl mx-auto space-y-6">
               
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-                  <div className="p-6 border-b border-slate-100 flex justify-between items-center">
-                    <h3 className="text-lg font-semibold text-slate-800">Node Registry</h3>
-                    <span className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full">Total: {devices.length}</span>
+                <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
+                  
+                  {/* Header & Filters */}
+                  <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex items-center space-x-3">
+                      <h3 className="text-lg font-semibold text-slate-800">Node Registry</h3>
+                      <span className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full">Total: {filteredDevices.length}</span>
+                    </div>
+                    
+                    <div className="flex items-center space-x-2">
+                      <Filter size={16} className="text-slate-400" />
+                      <select 
+                        value={selectedRoom} 
+                        onChange={(e) => setSelectedRoom(e.target.value)}
+                        className="text-sm border-slate-200 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-1.5 outline-none"
+                      >
+                        {uniqueRooms.map(room => (
+                          <option key={room} value={room}>{room === 'All' ? 'All Rooms' : `Room ${room}`}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  {/* Device Type Tabs */}
+                  <div className="px-5 pt-3 pb-0 border-b border-slate-100 flex space-x-4 overflow-x-auto">
+                    {['All', 'Lighting', 'Air Control', 'Sensor'].map(type => (
+                      <button 
+                        key={type}
+                        onClick={() => setSelectedType(type)}
+                        className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${selectedType === type ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
+                      >
+                        {type}
+                      </button>
+                    ))}
                   </div>
                   
-                  <div className="overflow-x-auto">
+                  <div className="overflow-x-auto flex-1">
                     <table className="w-full text-left border-collapse">
                       <thead>
                         <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wider">
@@ -148,10 +188,10 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100">
-                        {devices.length === 0 ? (
-                          <tr><td colSpan="4" className="text-center py-8 text-slate-400">No devices found</td></tr>
+                        {filteredDevices.length === 0 ? (
+                          <tr><td colSpan="4" className="text-center py-8 text-slate-400">No devices match your filter</td></tr>
                         ) : (
-                          devices.map(device => {
+                          filteredDevices.map(device => {
                             const isPending = device.status === 'pending';
                             const isOn = deviceStatus[device.node_id] || false;
                             const isController = device.device_type === 'lighting' || device.device_type === 'air_control';
@@ -165,7 +205,15 @@ export default function App() {
                                     </div>
                                     <div>
                                       <p className="font-medium text-slate-800">{device.device_name || device.node_id}</p>
-                                      <p className="text-xs text-slate-400">{device.node_id}</p>
+                                      <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
+                                        <span>{device.node_id}</span>
+                                        {device.room_id && (
+                                          <>
+                                            <span>•</span>
+                                            <span className="font-medium text-slate-500">{device.room_id}</span>
+                                          </>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                 </td>
