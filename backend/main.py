@@ -2,7 +2,7 @@ import json
 import threading
 from contextlib import asynccontextmanager
 import datetime
-
+from pydantic import BaseModel
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +25,11 @@ MQTT_TELEMETRY_TOPIC = f"{PREFIX}/nodes/+/telemetry"
 MQTT_COMMAND_TOPIC = f"{PREFIX}/nodes/{{}}/command"
 
 mqtt_client = None
+
+# --- Pydantic Schema ---
+class RoomCreate(BaseModel):
+    room_id: str
+    room_name: str
 
 # =========================================================
 # MQTT Callbacks (VERSION 2)
@@ -226,6 +231,21 @@ async def control_device_api(device_id: str, request: Request):
         print(f"\n[Platform] Command '{action}' sent to {topic}")
         
     return {"status": "success", "message": f"Command {action} sent to {device_id}"}
+
+@app.post("/rooms")
+def create_room(room: RoomCreate, db: Session = Depends(get_db)):
+    existing_room = db.query(Room).filter(Room.room_id == room.room_id).first()
+    if existing_room:
+        raise HTTPException(status_code=400, detail="Room ID already exists")
+    
+    new_room = Room(
+        room_id=room.room_id,
+        room_name=room.room_name
+    )
+    db.add(new_room)
+    db.commit()
+    db.refresh(new_room)
+    return {"message": f"Room {room.room_id} created successfully"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

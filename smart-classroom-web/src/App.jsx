@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { 
   LayoutDashboard, Clock, Users, Zap, UserCheck,
-  ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter
+  ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, X
 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -14,11 +14,15 @@ export default function App() {
   const [telemetryData, setTelemetryData] = useState([]);
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [deviceStatus, setDeviceStatus] = useState({});
+
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
 
-  const uniqueRooms = ['All', ...new Set(devices.map(d => d.room_id).filter(Boolean))];
+  const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
+  const [newRoom, setNewRoom] = useState({ id: '', name: '' });
 
+  const uniqueRooms = ['All', ...new Set(devices.map(d => d.room_id).filter(Boolean))];
+  
   const filteredDevices = devices.filter(d => {
     const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;
     const matchType = selectedType === 'All' || (d.device_type && d.device_type.toLowerCase().includes(selectedType.toLowerCase().replace(' ', '_')));
@@ -57,10 +61,10 @@ export default function App() {
             time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
             power: sensorData.power_usage_watts || 0
           };
-        }).reverse(); // กลับด้านให้ข้อมูลใหม่สุดอยู่ขวา
+        }).reverse();
         setTelemetryData(formattedData);
       })
-      .catch(err => console.error(err));
+      .catch(err => console.error("Telemetry Error:", err));
   }, [selectedGraphNode]);
 
   useEffect(() => {
@@ -74,6 +78,31 @@ export default function App() {
     const interval = setInterval(fetchTelemetry, 5000);
     return () => clearInterval(interval);
   }, [fetchTelemetry]);
+
+  const handleAddRoom = async (e) => {
+    e.preventDefault();
+    if (!newRoom.id || !newRoom.name) return alert("Please fill all fields");
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/rooms`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: newRoom.id, room_name: newRoom.name })
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.detail || "Failed to create room");
+      }
+      
+      alert(`Room ${newRoom.id} created successfully!`);
+      setIsAddRoomOpen(false);
+      setNewRoom({ id: '', name: '' });
+    } catch (error) {
+      console.error(error);
+      alert(error.message);
+    }
+  };
 
   const approveDevice = (deviceId) => {
     fetch(`${API_BASE_URL}/devices/${deviceId}/approve`, { method: 'POST' })
@@ -111,7 +140,8 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen bg-slate-50 text-slate-800">
+    <div className="flex h-screen bg-slate-50 text-slate-800 font-sans relative">
+      {/* Sidebar */}
       <aside className="w-64 bg-slate-800 text-slate-100 flex flex-col shadow-xl z-20">
         <div className="h-16 flex items-center px-6 border-b border-slate-700">
           <Zap className="text-blue-400 mr-3" size={24} />
@@ -127,6 +157,7 @@ export default function App() {
         </nav>
       </aside>
 
+      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white shadow-sm flex items-center justify-between px-8 z-10">
           <h2 className="text-xl font-semibold capitalize">{activeTab}</h2>
@@ -161,6 +192,14 @@ export default function App() {
                           <option key={room} value={room}>{room === 'All' ? 'All Rooms' : `Room ${room}`}</option>
                         ))}
                       </select>
+                      {/* Add Room Button */}
+                      <button 
+                        onClick={() => setIsAddRoomOpen(true)}
+                        className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                        title="Add New Room"
+                      >
+                        <Plus size={18} />
+                      </button>
                     </div>
                   </div>
 
@@ -293,6 +332,60 @@ export default function App() {
           )}
         </div>
       </main>
+
+      {/* Add Room Modal */}
+      {isAddRoomOpen && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center p-5 border-b border-slate-100">
+              <h3 className="font-semibold text-lg">Add New Room</h3>
+              <button onClick={() => setIsAddRoomOpen(false)} className="text-slate-400 hover:text-slate-600">
+                <X size={20} />
+              </button>
+            </div>
+            <form onSubmit={handleAddRoom} className="p-5 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Room ID</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. R202" 
+                  value={newRoom.id}
+                  onChange={(e) => setNewRoom({...newRoom, id: e.target.value})}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1">Room Name</label>
+                <input 
+                  type="text" 
+                  placeholder="e.g. Lecture Room 2" 
+                  value={newRoom.name}
+                  onChange={(e) => setNewRoom({...newRoom, name: e.target.value})}
+                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                />
+              </div>
+              <div className="pt-2 flex justify-end space-x-3">
+                <button 
+                  type="button" 
+                  onClick={() => setIsAddRoomOpen(false)}
+                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  type="submit" 
+                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
+                >
+                  Save Room
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
