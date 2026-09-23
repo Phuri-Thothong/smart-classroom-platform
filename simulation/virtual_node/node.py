@@ -10,7 +10,7 @@ GATEWAY_IP = '127.0.0.1'
 GATEWAY_PORT = 5000
 NODE_IP = '127.0.0.1'
 
-def run_node(device_id, device_type, node_port):
+def run_node(device_id, device_type, node_port, gateway_port):
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     sock.bind((NODE_IP, node_port))
 
@@ -33,8 +33,8 @@ def run_node(device_id, device_type, node_port):
     # ฟังก์ชันรอรับ Config และ Command
     def udp_listener():
         while True:
-            data, addr = sock.recvfrom(1024)
             try:
+                data, addr = sock.recvfrom(1024)
                 msg = json.loads(data.decode())
                 msg_type = msg.get("type")
                 
@@ -65,6 +65,8 @@ def run_node(device_id, device_type, node_port):
                     else:
                         state["device_status"] = action
 
+            except ConnectionResetError:
+                pass
             except Exception as e:
                 print(f"Error parsing UDP: {e}")
 
@@ -115,6 +117,7 @@ if __name__ == "__main__":
     d_id = sys.argv[1] if len(sys.argv) > 1 else "sim-lighting-01"
     d_type = sys.argv[2] if len(sys.argv) > 2 else "lighting"
     port = int(sys.argv[3]) if len(sys.argv) > 3 else random.randint(6000, 7000)
+    g_port = int(sys.argv[4]) if len(sys.argv) > 4 else 5000
     
-    run_node(d_id, d_type, port)
+    run_node(d_id, d_type, port, g_port)
     

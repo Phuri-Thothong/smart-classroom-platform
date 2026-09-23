@@ -1,3 +1,4 @@
+import sys
 import socket
 import json
 import threading
@@ -10,11 +11,10 @@ import paho.mqtt.client as mqtt
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
 PREFIX = "smart-classroom/psu_6610110598"
-GATEWAY_ID = "gateway-r201-001"
-ROOM_ID = "R201"
-
+ROOM_ID = sys.argv[1] if len(sys.argv) > 1 else "R201"
+GATEWAY_ID = sys.argv[2] if len(sys.argv) > 2 else "gateway-r201-001"
+UDP_PORT = int(sys.argv[3]) if len(sys.argv) > 3 else 5000
 UDP_IP = "127.0.0.1"
-UDP_PORT = 5000
 
 # ตั้งค่า Logging ให้บันทึกลงไฟล์และแสดงบนจอ
 logging.basicConfig(
@@ -101,4 +101,3 @@ if __name__ == "__main__":
     threading.Thread(target=udp_listener, daemon=True).start()
     mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
     mqtt_client.loop_forever()
-    
