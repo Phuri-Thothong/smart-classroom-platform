@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react';
-import { 
-  LayoutDashboard, Clock, Users, Zap, UserCheck,
-  ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, X
-} from 'lucide-react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+
+import Sidebar from './components/Sidebar';
+import AddRoomModal from './components/AddRoomModal';
 
 const API_BASE_URL = "http://localhost:8000";
 
@@ -12,46 +12,43 @@ export default function App() {
   const [devices, setDevices] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
   const [telemetryData, setTelemetryData] = useState([]);
+  
+  // State ที่เก็บสิ่งที่ User "ตั้งใจ" เลือก
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [deviceStatus, setDeviceStatus] = useState({});
 
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
-
   const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
-  const [newRoom, setNewRoom] = useState({ id: '', name: '' });
 
-  const uniqueRooms = ['All', ...new Set(devices.map(d => d.room_id).filter(Boolean))];
+  const uniqueRooms = useMemo(() => {
+    return ['All', ...new Set(devices.map(d => d.room_id).filter(Boolean))];
+  }, [devices]);
   
-  const filteredDevices = devices.filter(d => {
-    const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;
-    const matchType = selectedType === 'All' || (d.device_type && d.device_type.toLowerCase().includes(selectedType.toLowerCase().replace(' ', '_')));
-    return matchRoom && matchType;
-  });
+  const filteredDevices = useMemo(() => {
+    return devices.filter(d => {
+      const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;
+      const matchType = selectedType === 'All' || (d.device_type && d.device_type.toLowerCase().includes(selectedType.toLowerCase().replace(' ', '_')));
+      return matchRoom && matchType;
+    });
+  }, [devices, selectedRoom, selectedType]);
 
-  const fetchDevices = useCallback(() => {
-    fetch(`${API_BASE_URL}/devices`)
-      .then((res) => {
-        if (!res.ok) throw new Error("Network error");
-        return res.json();
-      })
-      .then((data) => {
-        setDevices(data);
-        setIsBackendOnline(true);
-        if (!selectedGraphNode) {
-          const activeNodes = data.filter(d => d.status !== 'pending');
-          if (activeNodes.length > 0) setSelectedGraphNode(activeNodes[0].node_id);
-        }
-      })
-      .catch((err) => {
-        console.error("Fetch Error:", err);
-        setIsBackendOnline(false);
-      });
-  }, [selectedGraphNode]);
+  const graphNodes = useMemo(() => {
+    return filteredDevices.filter(d => 
+      d.status !== 'pending' && (d.device_type === 'lighting' || d.device_type === 'air_control')
+    );
+  }, [filteredDevices]);
+  
+  const activeGraphNode = useMemo(() => {
+    if (graphNodes.length === 0) return '';
+    const isValid = graphNodes.some(n => n.node_id === selectedGraphNode);
+    return isValid ? selectedGraphNode : graphNodes[0].node_id;
+  }, [graphNodes, selectedGraphNode]);
 
   const fetchTelemetry = useCallback(() => {
-    if (!selectedGraphNode) return;
-    fetch(`${API_BASE_URL}/devices/${selectedGraphNode}/telemetry?limit=20`)
+    if (!activeGraphNode) return;
+    
+    fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry?limit=20`)
       .then(res => res.json())
       .then(data => {
         const formattedData = data.map(item => {
@@ -65,7 +62,23 @@ export default function App() {
         setTelemetryData(formattedData);
       })
       .catch(err => console.error("Telemetry Error:", err));
-  }, [selectedGraphNode]);
+  }, [activeGraphNode]);
+
+  const fetchDevices = useCallback(() => {
+    fetch(`${API_BASE_URL}/devices`)
+      .then(res => {
+        if (!res.ok) throw new Error("Network error");
+        return res.json();
+      })
+      .then(data => {
+        setDevices(data);
+        setIsBackendOnline(true);
+      })
+      .catch(err => {
+        console.error("Fetch Error:", err);
+        setIsBackendOnline(false);
+      });
+  }, []);
 
   useEffect(() => {
     fetchDevices();
@@ -79,25 +92,20 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchTelemetry]);
 
-  const handleAddRoom = async (e) => {
-    e.preventDefault();
-    if (!newRoom.id || !newRoom.name) return alert("Please fill all fields");
-
+  const handleSaveRoom = async (newRoom) => {
     try {
       const res = await fetch(`${API_BASE_URL}/rooms`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: newRoom.id, room_name: newRoom.name })
       });
-      
       if (!res.ok) {
         const errData = await res.json();
         throw new Error(errData.detail || "Failed to create room");
       }
-      
       alert(`Room ${newRoom.id} created successfully!`);
       setIsAddRoomOpen(false);
-      setNewRoom({ id: '', name: '' });
+      fetchDevices();
     } catch (error) {
       console.error(error);
       alert(error.message);
@@ -107,10 +115,7 @@ export default function App() {
   const approveDevice = (deviceId) => {
     fetch(`${API_BASE_URL}/devices/${deviceId}/approve`, { method: 'POST' })
       .then(() => fetchDevices())
-      .catch(err => {
-        console.error("Approve Error:", err);
-        alert("Failed to approve device.");
-      });
+      .catch(err => console.error("Approve Error:", err));
   };
 
   const toggleDevice = async (id, currentStatus) => {
@@ -127,7 +132,6 @@ export default function App() {
     } catch (error) {
       console.error("Control Error:", error);
       setDeviceStatus(prev => ({ ...prev, [id]: currentStatus }));
-      alert(`Failed to turn ${action} device ${id}`);
     }
   };
 
@@ -141,23 +145,8 @@ export default function App() {
 
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 font-sans relative">
-      {/* Sidebar */}
-      <aside className="w-64 bg-slate-800 text-slate-100 flex flex-col shadow-xl z-20">
-        <div className="h-16 flex items-center px-6 border-b border-slate-700">
-          <Zap className="text-blue-400 mr-3" size={24} />
-          <h1 className="text-lg font-bold">Smart Class</h1>
-        </div>
-        <nav className="flex-1 py-6 px-3 space-y-2">
-          {['dashboard', 'automation', 'users'].map(tab => (
-            <button key={tab} onClick={() => setActiveTab(tab)} className={`w-full flex items-center px-4 py-3 rounded-lg capitalize transition-colors ${activeTab === tab ? 'bg-slate-700 text-white' : 'text-slate-400 hover:bg-slate-700 hover:text-white'}`}>
-              {tab === 'dashboard' ? <LayoutDashboard className="mr-3" size={20} /> : tab === 'automation' ? <Clock className="mr-3" size={20} /> : <Users className="mr-3" size={20} />}
-              <span className="font-medium">{tab}</span>
-            </button>
-          ))}
-        </nav>
-      </aside>
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
 
-      {/* Main Content */}
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white shadow-sm flex items-center justify-between px-8 z-10">
           <h2 className="text-xl font-semibold capitalize">{activeTab}</h2>
@@ -170,45 +159,33 @@ export default function App() {
         <div className="flex-1 overflow-auto p-8">
           {activeTab === 'dashboard' ? (
             <div className="max-w-7xl mx-auto space-y-6">
-              
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                 <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-                  
-                  {/* Header & Filters */}
                   <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center space-x-3">
                       <h3 className="text-lg font-semibold text-slate-800">Node Registry</h3>
                       <span className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full">Total: {filteredDevices.length}</span>
                     </div>
-                    
                     <div className="flex items-center space-x-2">
                       <Filter size={16} className="text-slate-400" />
                       <select 
-                        value={selectedRoom} 
-                        onChange={(e) => setSelectedRoom(e.target.value)}
+                        value={selectedRoom} onChange={(e) => setSelectedRoom(e.target.value)}
                         className="text-sm border-slate-200 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-1.5 outline-none"
                       >
                         {uniqueRooms.map(room => (
                           <option key={room} value={room}>{room === 'All' ? 'All Rooms' : `Room ${room}`}</option>
                         ))}
                       </select>
-                      {/* Add Room Button */}
-                      <button 
-                        onClick={() => setIsAddRoomOpen(true)}
-                        className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
-                        title="Add New Room"
-                      >
+                      <button onClick={() => setIsAddRoomOpen(true)} className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors">
                         <Plus size={18} />
                       </button>
                     </div>
                   </div>
 
-                  {/* Device Type Tabs */}
                   <div className="px-5 pt-3 pb-0 border-b border-slate-100 flex space-x-4 overflow-x-auto">
                     {['All', 'Lighting', 'Air Control', 'Sensor'].map(type => (
                       <button 
-                        key={type}
-                        onClick={() => setSelectedType(type)}
+                        key={type} onClick={() => setSelectedType(type)}
                         className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${selectedType === type ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}
                       >
                         {type}
@@ -247,10 +224,7 @@ export default function App() {
                                       <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
                                         <span>{device.node_id}</span>
                                         {device.room_id && (
-                                          <>
-                                            <span>•</span>
-                                            <span className="font-medium text-slate-500">{device.room_id}</span>
-                                          </>
+                                          <><span className="mx-1">•</span><span className="font-medium text-slate-500">{device.room_id}</span></>
                                         )}
                                       </div>
                                     </div>
@@ -302,16 +276,25 @@ export default function App() {
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <div className="flex justify-between items-center mb-6">
                   <h3 className="text-lg font-semibold text-slate-800">Energy & Telemetry Trends</h3>
-                  <select value={selectedGraphNode} onChange={(e) => setSelectedGraphNode(e.target.value)} className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-slate-200 px-3 py-1.5">
-                    {devices.filter(d => d.status !== 'pending').map(d => (
-                      <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>
-                    ))}
+                  <select 
+                    value={activeGraphNode} 
+                    onChange={(e) => setSelectedGraphNode(e.target.value)} 
+                    className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-slate-200 px-3 py-1.5"
+                    disabled={graphNodes.length === 0}
+                  >
+                    {graphNodes.length === 0 ? (
+                      <option value="">No active devices</option>
+                    ) : (
+                      graphNodes.map(d => <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>)
+                    )}
                   </select>
                 </div>
                 
                 <div className="h-64 w-full">
-                  {telemetryData.length === 0 ? (
-                    <div className="h-full flex items-center justify-center text-slate-400">Waiting for data...</div>
+                  {!activeGraphNode || telemetryData.length === 0 ? (
+                    <div className="h-full flex items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-lg">
+                      No power data available for selected room
+                    </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
                       <LineChart data={telemetryData} margin={{ top: 5, right: 20, left: -20, bottom: 0 }}>
@@ -319,13 +302,12 @@ export default function App() {
                         <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
                         <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
                         <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                        <Line type="monotone" dataKey="power" name="Power (W) / Value" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                        <Line type="monotone" dataKey="power" name="Power (W)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
                 </div>
               </div>
-
             </div>
           ) : (
             <div className="flex items-center justify-center h-full text-slate-400">Module under construction</div>
@@ -333,59 +315,11 @@ export default function App() {
         </div>
       </main>
 
-      {/* Add Room Modal */}
-      {isAddRoomOpen && (
-        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
-            <div className="flex justify-between items-center p-5 border-b border-slate-100">
-              <h3 className="font-semibold text-lg">Add New Room</h3>
-              <button onClick={() => setIsAddRoomOpen(false)} className="text-slate-400 hover:text-slate-600">
-                <X size={20} />
-              </button>
-            </div>
-            <form onSubmit={handleAddRoom} className="p-5 space-y-4">
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Room ID</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. R202" 
-                  value={newRoom.id}
-                  onChange={(e) => setNewRoom({...newRoom, id: e.target.value})}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1">Room Name</label>
-                <input 
-                  type="text" 
-                  placeholder="e.g. Lecture Room 2" 
-                  value={newRoom.name}
-                  onChange={(e) => setNewRoom({...newRoom, name: e.target.value})}
-                  className="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  required
-                />
-              </div>
-              <div className="pt-2 flex justify-end space-x-3">
-                <button 
-                  type="button" 
-                  onClick={() => setIsAddRoomOpen(false)}
-                  className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-lg transition-colors"
-                >
-                  Cancel
-                </button>
-                <button 
-                  type="submit" 
-                  className="px-4 py-2 text-sm font-medium bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors shadow-sm"
-                >
-                  Save Room
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
+      <AddRoomModal 
+        isOpen={isAddRoomOpen} 
+        onClose={() => setIsAddRoomOpen(false)} 
+        onSave={handleSaveRoom} 
+      />
     </div>
   );
 }
