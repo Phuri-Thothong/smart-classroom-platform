@@ -83,7 +83,7 @@ def run_node(device_id, device_type, node_port):
                 }
             }
             sock.sendto(json.dumps(metadata).encode(), (GATEWAY_IP, GATEWAY_PORT))
-            print("[Node] Sent Metadata via ESP-NOW Broadcast")
+            print(f"[Node: {device_id}] Sent Metadata via ESP-NOW Broadcast")
             time.sleep(5) 
         else:
             # คำนวณการใช้ไฟตามสถานะ
@@ -104,8 +104,12 @@ def run_node(device_id, device_type, node_port):
                 }
             }
             sock.sendto(json.dumps(telemetry).encode(), (GATEWAY_IP, GATEWAY_PORT))
-            print(f"[Node] Sent Telemetry (Status: {state['device_status']}, Power: {power} W)")
-            time.sleep(state["telemetry_interval"])
+            print(f"[Node: {device_id}] Sent Telemetry (Status: {state['device_status']}, Power: {power} W)")
+            # Multi-Node Scalability: เพิ่ม Random Jitter (0.1 ถึง 2.0 วินาที)
+            jitter = round(random.uniform(0.1, 2.0), 2)
+            sleep_time = state["telemetry_interval"] + jitter
+            print(f"[Node: {device_id}] Next transmission in {sleep_time:.2f} seconds (included {jitter:.2f}s jitter)")
+            time.sleep(sleep_time)
 
 if __name__ == "__main__":
     d_id = sys.argv[1] if len(sys.argv) > 1 else "sim-lighting-01"
