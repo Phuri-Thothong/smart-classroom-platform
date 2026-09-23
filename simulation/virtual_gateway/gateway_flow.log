@@ -1,0 +1,29 @@
+10:57:32.420 | INFO    | [Gateway] Ready. Listening for ESP-NOW UDP on port 5000
+10:57:32.879 | INFO    | [MQTT] Connected to Cloud (Code 0)
+10:57:32.879 | INFO    | [MQTT] Subscribed to Config & Command topics
+10:58:01.567 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:58:01.567 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:58:12.219 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:58:12.220 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:58:22.561 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:58:22.598 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:58:34.342 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:58:34.343 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:58:44.913 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:58:44.914 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:58:54.775 | INFO    | [MQTT -> Gateway] Rx: COMMAND for sim-light-01
+10:58:54.777 | INFO    | [Gateway -> ESP-NOW] Tx: Forwarded COMMAND to sim-light-01
+10:58:55.724 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:58:55.724 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:59:07.084 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:59:07.085 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:59:17.915 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:59:17.915 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:59:29.806 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:59:29.807 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:59:32.484 | INFO    | [MQTT -> Gateway] Rx: COMMAND for sim-light-01
+10:59:32.485 | INFO    | [Gateway -> ESP-NOW] Tx: Forwarded COMMAND to sim-light-01
+10:59:41.787 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:59:41.787 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
+10:59:53.418 | INFO    | [ESP-NOW -> Gateway] Rx: TELEMETRY from sim-light-01
+10:59:53.419 | INFO    | [Gateway -> MQTT] Tx: Forwarded TELEMETRY to Cloud for sim-light-01
