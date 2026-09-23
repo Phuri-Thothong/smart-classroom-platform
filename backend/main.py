@@ -247,6 +247,16 @@ def create_room(room: RoomCreate, db: Session = Depends(get_db)):
     db.refresh(new_room)
     return {"message": f"Room {room.room_id} created successfully"}
 
+@app.delete("/devices/{device_id}")
+def delete_device(device_id: str, db: Session = Depends(get_db)):
+    device = db.query(Node).filter(Node.node_id == device_id).first()
+    if not device:
+        raise HTTPException(status_code=404, detail="Device not found")
+    db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
+    db.delete(device)
+    db.commit()
+    return {"message": f"Device {device_id} deleted successfully"}
+
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
     

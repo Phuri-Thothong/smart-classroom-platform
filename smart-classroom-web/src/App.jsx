@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 import Sidebar from './components/Sidebar';
@@ -38,7 +38,7 @@ export default function App() {
       d.status !== 'pending' && (d.device_type === 'lighting' || d.device_type === 'air_control')
     );
   }, [filteredDevices]);
-  
+
   const activeGraphNode = useMemo(() => {
     if (graphNodes.length === 0) return '';
     const isValid = graphNodes.some(n => n.node_id === selectedGraphNode);
@@ -132,6 +132,18 @@ export default function App() {
     } catch (error) {
       console.error("Control Error:", error);
       setDeviceStatus(prev => ({ ...prev, [id]: currentStatus }));
+    }
+  };
+
+  const deleteDevice = async (deviceId) => {
+    if (!window.confirm(`Are you sure you want to delete device: ${deviceId}?`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/devices/${deviceId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Failed to delete device");
+      fetchDevices(); // รีเฟรชข้อมูลหลังลบสำเร็จ
+    } catch (error) {
+      console.error("Delete Error:", error);
+      alert("Failed to delete device.");
     }
   };
 
@@ -239,7 +251,7 @@ export default function App() {
                                     {isPending ? 'Pending' : 'Active'}
                                   </span>
                                 </td>
-                                <td className="p-4 text-right flex justify-end items-center h-full">
+                                <td className="p-4 text-right flex justify-end items-center h-full space-x-3">
                                   {isPending ? (
                                     <button onClick={() => approveDevice(device.node_id)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
                                       <CheckCircle size={14} className="mr-1" /> Approve
@@ -251,6 +263,10 @@ export default function App() {
                                   ) : (
                                     <span className="text-xs text-slate-400">View Only</span>
                                   )}
+                                  
+                                  <button onClick={() => deleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete Device">
+                                    <Trash2 size={16} />
+                                  </button>
                                 </td>
                               </tr>
                             );
@@ -297,12 +313,18 @@ export default function App() {
                     </div>
                   ) : (
                     <ResponsiveContainer width="100%" height="100%">
-                      <LineChart data={telemetryData} margin={{ top: 5, right: 20, left: -20, bottom: 0 }}>
+                      <LineChart data={telemetryData} margin={{ top: 10, right: 20, left: 0, bottom: 20 }}>
                         <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                        <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} dy={10} />
-                        <YAxis axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 12 }} />
+                        <XAxis 
+                          dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }} dy={15}
+                          label={{ value: 'Time (HH:MM:SS)', position: 'insideBottom', offset: -15, fill: '#64748b', fontSize: 12, fontWeight: 500 }}
+                        />
+                        <YAxis 
+                          axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }}
+                          label={{ value: 'Power (Watts)', angle: -90, position: 'insideLeft', offset: 15, fill: '#64748b', fontSize: 12, fontWeight: 500, style: { textAnchor: 'middle' } }}
+                        />
                         <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                        <Line type="monotone" dataKey="power" name="Power (W)" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                        <Line type="monotone" dataKey="power" name="Power" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} isAnimationActive={false} />
                       </LineChart>
                     </ResponsiveContainer>
                   )}
