@@ -68,7 +68,10 @@ export default function App() {
   const approveDevice = (deviceId) => {
     fetch(`${API_BASE_URL}/devices/${deviceId}/approve`, { method: 'POST' })
       .then(() => fetchDevices())
-      .catch(err => alert("Failed to approve device."));
+      .catch(err => {
+        console.error("Approve Error:", err);
+        alert("Failed to approve device.");
+      });
   };
 
   const toggleDevice = async (id, currentStatus) => {
@@ -83,6 +86,7 @@ export default function App() {
       });
       if (!res.ok) throw new Error("API error");
     } catch (error) {
+      console.error("Control Error:", error);
       setDeviceStatus(prev => ({ ...prev, [id]: currentStatus }));
       alert(`Failed to turn ${action} device ${id}`);
     }
