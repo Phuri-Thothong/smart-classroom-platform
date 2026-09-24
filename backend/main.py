@@ -305,8 +305,15 @@ def delete_device(device_id: str, db: Session = Depends(get_db)):
     return {"message": f"Device {device_id} deleted successfully"}
 
 @app.get("/gateways/status")
-def get_gateway_status():
-    return gateway_statuses
+def get_gateway_status(db: Session = Depends(get_db)):
+    active_gateways = db.query(Node.gateway_id).distinct().all()
+    response_statuses = {}
+    for (gw_id,) in active_gateways:
+        if gw_id:
+            response_statuses[gw_id] = gateway_statuses.get(gw_id, "offline")
+    for gw_id, status in gateway_statuses.items():
+        response_statuses[gw_id] = status
+    return response_statuses
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
