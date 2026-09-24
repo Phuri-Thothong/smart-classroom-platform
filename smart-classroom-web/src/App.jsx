@@ -1,15 +1,18 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3 } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 import Sidebar from './components/Sidebar';
 import AddRoomModal from './components/AddRoomModal';
+import DeviceSetupModal from './components/DeviceSetupModal';
+import ManageRoomsModal from './components/ManageRoomsModal';
 
 const API_BASE_URL = "http://localhost:8000";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [devices, setDevices] = useState([]);
+  const [roomsList, setRoomsList] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
   const [telemetryData, setTelemetryData] = useState([]);
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
@@ -17,11 +20,15 @@ export default function App() {
   const [gatewayStatus, setGatewayStatus] = useState({});
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
+  
   const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
+  const [isManageRoomsOpen, setIsManageRoomsOpen] = useState(false);
+  const [isDeviceSetupOpen, setIsDeviceSetupOpen] = useState(false);
+  const [setupDevice, setSetupDevice] = useState(null);
 
   const uniqueRooms = useMemo(() => {
-    return ['All', ...new Set(devices.map(d => d.room_id).filter(Boolean))];
-  }, [devices]);
+    return ['All', ...new Set(roomsList.map(r => r.room_id))];
+  }, [roomsList]);
   
   const filteredDevices = useMemo(() => {
     return devices.filter(d => {
@@ -55,6 +62,13 @@ export default function App() {
   }, [gatewayStatus]);
   const offlineGatewaysCount = offlineGateways.length;
 
+  const fetchRooms = useCallback(() => {
+    fetch(`${API_BASE_URL}/rooms`)
+      .then(res => res.json())
+      .then(data => setRoomsList(data))
+      .catch(err => console.error("Rooms Fetch Error:", err));
+  }, []);
+
   const fetchGateways = useCallback(() => {
     fetch(`${API_BASE_URL}/gateways/status`)
       .then(res => res.json())
@@ -64,7 +78,6 @@ export default function App() {
 
   const fetchTelemetry = useCallback(() => {
     if (!activeGraphNode) return;
-    
     fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry?limit=20`)
       .then(res => res.json())
       .then(data => {
@@ -98,6 +111,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    fetchRooms();
     fetchDevices();
     fetchGateways();
     const interval = setInterval(() => {
@@ -105,7 +119,7 @@ export default function App() {
       fetchGateways();
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchDevices, fetchGateways]);
+  }, [fetchDevices, fetchGateways, fetchRooms]);
 
   useEffect(() => {
     fetchTelemetry();
@@ -120,23 +134,44 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: newRoom.id, room_name: newRoom.name })
       });
-      if (!res.ok) {
-        const errData = await res.json();
-        throw new Error(errData.detail || "Failed to create room");
-      }
+      if (!res.ok) throw new Error("Failed to create room");
       alert(`Room ${newRoom.id} created successfully!`);
       setIsAddRoomOpen(false);
-      fetchDevices();
+      fetchRooms();
     } catch (error) {
-      console.error(error);
-      alert(error.message);
+      console.error("Save Room Error:", error);
+      alert("Error saving room");
     }
   };
 
-  const approveDevice = (deviceId) => {
-    fetch(`${API_BASE_URL}/devices/${deviceId}/approve`, { method: 'POST' })
-      .then(() => fetchDevices())
-      .catch(err => console.error("Approve Error:", err));
+  const handleDeleteRoom = async (roomId) => {
+    if (!window.confirm(`Are you sure you want to delete room ${roomId}? Devices will be unassigned.`)) return;
+    try {
+      const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Failed to delete room");
+      fetchRooms();
+      fetchDevices(); 
+    } catch (error) {
+      console.error("Delete Room Error:", error);
+      alert("Error deleting room");
+    }
+  };
+
+  const handleSaveDeviceConfig = async (configData, isNewApproval) => {
+    const endpoint = isNewApproval ? 'approve' : 'config';
+    try {
+      const res = await fetch(`${API_BASE_URL}/devices/${configData.device_id}/${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(configData)
+      });
+      if (!res.ok) throw new Error("Failed to save configuration");
+      setIsDeviceSetupOpen(false);
+      fetchDevices();
+    } catch (error) {
+      console.error("Save Config Error:", error);
+      alert("Error saving device configuration");
+    }
   };
 
   const toggleDevice = async (id, currentStatus) => {
@@ -163,7 +198,7 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to delete device");
       fetchDevices();
     } catch (error) {
-      console.error("Delete Error:", error);
+      console.error("Delete Device Error:", error);
       alert("Failed to delete device.");
     }
   };
@@ -203,15 +238,20 @@ export default function App() {
                       <Filter size={16} className="text-slate-400" />
                       <select 
                         value={selectedRoom} onChange={(e) => setSelectedRoom(e.target.value)}
-                        className="text-sm border-slate-200 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-1.5 outline-none"
+                        className="text-sm border-slate-200 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-1.5 outline-none max-w-xs"
                       >
                         {uniqueRooms.map(room => (
                           <option key={room} value={room}>{room === 'All' ? 'All Rooms' : `Room ${room}`}</option>
                         ))}
                       </select>
-                      <button onClick={() => setIsAddRoomOpen(true)} className="p-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors">
-                        <Plus size={18} />
-                      </button>
+                      <div className="flex space-x-1 border-l pl-2 border-slate-200">
+                        <button onClick={() => setIsAddRoomOpen(true)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Add Room">
+                          <Plus size={18} />
+                        </button>
+                        <button onClick={() => setIsManageRoomsOpen(true)} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-md transition-colors" title="Manage Rooms">
+                          <Edit3 size={18} />
+                        </button>
+                      </div>
                     </div>
                   </div>
 
@@ -245,6 +285,7 @@ export default function App() {
                             const isOffline = device.status === 'offline';
                             const isOn = deviceStatus[device.node_id] || false;
                             const isController = device.device_type === 'lighting' || device.device_type === 'air_control';
+
                             const iconBgColor = isPending ? 'bg-yellow-100 text-yellow-600' : isOffline ? 'bg-slate-100 text-slate-400' : 'bg-blue-100 text-blue-600';
                             const badgeColor = isPending ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : isOffline ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-green-50 text-green-700 border-green-200';
                             const dotColor = isPending ? 'bg-yellow-500' : isOffline ? 'bg-slate-400' : 'bg-green-500';
@@ -261,8 +302,10 @@ export default function App() {
                                       <p className={`font-medium ${isOffline ? 'text-slate-500' : 'text-slate-800'}`}>{device.device_name || device.node_id}</p>
                                       <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
                                         <span>{device.node_id}</span>
-                                        {device.room_id && (
+                                        {device.room_id ? (
                                           <><span className="mx-1">•</span><span className="font-medium text-slate-500">{device.room_id}</span></>
+                                        ) : (
+                                          <><span className="mx-1">•</span><span className="italic text-yellow-600">Unassigned</span></>
                                         )}
                                       </div>
                                     </div>
@@ -279,24 +322,32 @@ export default function App() {
                                 </td>
                                 <td className="p-4 text-right flex justify-end items-center h-full space-x-3">
                                   {isPending ? (
-                                    <button onClick={() => approveDevice(device.node_id)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
+                                    <button onClick={() => { setSetupDevice(device); setIsDeviceSetupOpen(true); }} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
                                       <CheckCircle size={14} className="mr-1" /> Approve
                                     </button>
-                                  ) : isController ? (
-                                    <button 
-                                      onClick={() => toggleDevice(device.node_id, isOn)} 
-                                      disabled={isOffline}
-                                      className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed opacity-50' : ''}`}
-                                    >
-                                      <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
-                                    </button>
                                   ) : (
-                                    <span className="text-xs text-slate-400">View Only</span>
+                                    <>
+                                      {isController ? (
+                                        <button 
+                                          onClick={() => toggleDevice(device.node_id, isOn)} disabled={isOffline}
+                                          className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed opacity-50' : ''}`}
+                                        >
+                                          <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
+                                        </button>
+                                      ) : (
+                                        <span className="text-xs text-slate-400 pr-2">View Only</span>
+                                      )}
+                                      
+                                      <div className="flex border-l border-slate-200 pl-2 space-x-1">
+                                        <button onClick={() => { setSetupDevice(device); setIsDeviceSetupOpen(true); }} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors" title="Settings">
+                                          <Settings size={16} />
+                                        </button>
+                                        <button onClick={() => deleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete">
+                                          <Trash2 size={16} />
+                                        </button>
+                                      </div>
+                                    </>
                                   )}
-                                  
-                                  <button onClick={() => deleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete Device">
-                                    <Trash2 size={16} />
-                                  </button>
                                 </td>
                               </tr>
                             );
@@ -319,24 +370,15 @@ export default function App() {
                         <p className="text-base font-bold text-red-700">CRITICAL ERROR</p>
                         <p className="text-sm font-semibold text-red-600 mt-1">{offlineGatewaysCount} Gateway(s) Offline</p>
                         <div className="mt-3 bg-red-100/50 rounded-lg p-3 max-h-24 overflow-y-auto text-xs text-red-700 text-left w-full space-y-2 border border-red-200">
-                          {offlineGateways.map(id => (
-                            <div key={id} className="flex items-center font-medium">
-                              <AlertTriangle size={12} className="mr-2 shrink-0" /> {id}
-                            </div>
-                          ))}
+                          {offlineGateways.map(id => (<div key={id} className="flex items-center font-medium"><AlertTriangle size={12} className="mr-2 shrink-0" /> {id}</div>))}
                         </div>
                       </div>
                     ) : offlineCount > 0 ? (
                       <div className="text-center w-full">
                         <ServerCrash className="mx-auto text-orange-500 mb-2" size={32} />
                         <p className="text-sm font-semibold text-orange-700">{offlineCount} Device(s) Offline</p>
-
                         <div className="mt-3 bg-orange-100/50 rounded-lg p-3 max-h-24 overflow-y-auto text-xs text-orange-700 text-left w-full space-y-2 border border-orange-200">
-                          {offlineNodes.map(id => (
-                            <div key={id} className="flex items-center font-medium">
-                              <AlertTriangle size={12} className="mr-2 shrink-0" /> {id}
-                            </div>
-                          ))}
+                          {offlineNodes.map(id => (<div key={id} className="flex items-center font-medium"><AlertTriangle size={12} className="mr-2 shrink-0" /> {id}</div>))}
                         </div>
                       </div>
                     ) : (
@@ -398,10 +440,16 @@ export default function App() {
         </div>
       </main>
 
-      <AddRoomModal 
-        isOpen={isAddRoomOpen} 
-        onClose={() => setIsAddRoomOpen(false)} 
-        onSave={handleSaveRoom} 
+      <AddRoomModal isOpen={isAddRoomOpen} onClose={() => setIsAddRoomOpen(false)} onSave={handleSaveRoom} />
+      <ManageRoomsModal isOpen={isManageRoomsOpen} onClose={() => setIsManageRoomsOpen(false)} roomsList={roomsList} onDeleteRoom={handleDeleteRoom} />
+      
+      <DeviceSetupModal 
+        key={isDeviceSetupOpen ? `setup-${setupDevice?.node_id}` : 'setup-closed'}
+        isOpen={isDeviceSetupOpen} 
+        onClose={() => setIsDeviceSetupOpen(false)} 
+        onSave={handleSaveDeviceConfig} 
+        device={setupDevice} 
+        roomsList={roomsList} 
       />
     </div>
   );

@@ -328,6 +328,12 @@ async def control_device_api(device_id: str, request: Request):
         
     return {"status": "success", "message": f"Command {action} sent to {device_id}"}
 
+@app.get("/rooms")
+def get_rooms(db: Session = Depends(get_db)):
+    """ดึงข้อมูลห้องเรียนทั้งหมด"""
+    rooms = db.query(Room).all()
+    return rooms
+
 @app.post("/rooms")
 def create_room(room: RoomCreate, db: Session = Depends(get_db)):
     existing_room = db.query(Room).filter(Room.room_id == room.room_id).first()
