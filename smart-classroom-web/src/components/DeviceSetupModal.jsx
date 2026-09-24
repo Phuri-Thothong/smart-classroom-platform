@@ -5,8 +5,8 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
   const [formData, setFormData] = useState({
     device_name: device?.device_name || '',
     room_id: device?.room_id || '',
-    sampling_interval: 5,
-    telemetry_interval: 10,
+    sampling_interval: device?.sampling_interval || 5,
+    telemetry_interval: device?.telemetry_interval || 10,
     enabled: true
   });
 

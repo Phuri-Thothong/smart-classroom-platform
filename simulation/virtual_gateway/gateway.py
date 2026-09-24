@@ -52,7 +52,7 @@ def on_message(client, userdata, msg):
         
         logger.info(f"[MQTT -> Gateway] Rx: {endpoint.upper()} for {device_id}")
         
-        if endpoint in ["config", "command"]:
+        if endpoint in ["config", "command", "approve"]:
             if device_id in node_directory:
                 target_addr = node_directory[device_id]
                 try:
@@ -60,7 +60,12 @@ def on_message(client, userdata, msg):
                 except json.JSONDecodeError:
                     payload_data = msg.payload.decode()
                     
-                sock.sendto(json.dumps(payload_data).encode(), target_addr)
+                udp_payload = {
+                    "type": "config" if endpoint == "approve" else endpoint,
+                    "payload": payload_data.get("payload", payload_data) # ดึง payload ออกมาจากโครงสร้าง JSON
+                }
+                    
+                sock.sendto(json.dumps(udp_payload).encode(), target_addr)
                 logger.info(f"[Gateway -> ESP-NOW] Tx: Forwarded {endpoint.upper()} to {device_id}")
             else:
                 logger.warning(f"[Gateway] Error: No local address found for {device_id}")

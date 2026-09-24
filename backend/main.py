@@ -188,6 +188,19 @@ def get_devices(db: Session = Depends(get_db)):
     result = []
     current_time = datetime.utcnow()
     for node in nodes:
+        caps = {}
+        if node.capabilities:
+            if isinstance(node.capabilities, str):
+                try:
+                    caps = json.loads(node.capabilities)
+                    if isinstance(caps, str): # ถ้าซ้อนกัน 2 ชั้น
+                        caps = json.loads(caps)
+                except:
+                    pass
+            elif isinstance(node.capabilities, dict):
+                caps = node.capabilities
+        if not isinstance(caps, dict):
+            caps = {}
         node_data = {
             "node_id": node.node_id,
             "room_id": node.room_id,
@@ -196,18 +209,18 @@ def get_devices(db: Session = Depends(get_db)):
             "device_name": node.device_name,
             "firmware_version": node.firmware_version,
             "status": node.status,
+            "sampling_interval": caps.get("sampling_interval", 5),
+            "telemetry_interval": caps.get("telemetry_interval", 10),
         }
         if node.status != "pending":
             latest_tel = db.query(Telemetry).filter(Telemetry.node_id == node.node_id).order_by(desc(Telemetry.timestamp)).first()
             if latest_tel and latest_tel.timestamp:
                 try:
-                    # ตรวจสอบว่าเป็น String หรือไม่ ถ้าใช่ให้แปลงกลับเป็น datetime ก่อน
                     if isinstance(latest_tel.timestamp, str):
-                        # แปลงจากรูปแบบ ISO 8601 (เช่น "2026-09-23T15:30:00Z")
                         time_str = latest_tel.timestamp.replace("Z", "")
                         tel_time = datetime.fromisoformat(time_str)
                     else:
-                        tel_time = latest_tel.timestamp.replace(tzinfo=None)
+                        tel_time = latest_tel.timestamp.replace(tzinfo=None)              
                     time_diff = current_time - tel_time
                     if time_diff.total_seconds() > 15:
                         node_data["status"] = "offline"
@@ -217,7 +230,7 @@ def get_devices(db: Session = Depends(get_db)):
                     print(f"Error parsing timestamp for node {node.node_id}: {e}")
                     node_data["status"] = "offline"
             else:
-                node_data["status"] = "offline"
+                node_data["status"] = "offline"        
         result.append(node_data)
     return result
 
@@ -231,20 +244,32 @@ def get_device_api(device_id: str, db: Session = Depends(get_db)):
 
 @app.post("/devices/{device_id}/approve")
 def approve_device_api(device_id: str, config: DeviceConfig, db: Session = Depends(get_db)):
-    """อนุมัติอุปกรณ์และส่ง Configuration แรกเริ่มผ่าน MQTT"""
     node = db.query(Node).filter(Node.node_id == device_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Device not found")
-    
     node.status = "approved"
     if config.device_name:
         node.device_name = config.device_name
     if config.room_id:
         node.room_id = config.room_id
-        
+    caps = {}
+    if node.capabilities:
+        if isinstance(node.capabilities, str):
+            try:
+                caps = json.loads(node.capabilities)
+                if isinstance(caps, str):
+                    caps = json.loads(caps)
+            except:
+                pass
+        elif isinstance(node.capabilities, dict):
+            caps = node.capabilities
+    if not isinstance(caps, dict):
+        caps = {}
+    caps["sampling_interval"] = config.sampling_interval
+    caps["telemetry_interval"] = config.telemetry_interval
+    node.capabilities = caps 
     db.commit()
     db.refresh(node)
-
     config_data = {
         "device_id": device_id,
         "config_version": 1,
@@ -252,34 +277,40 @@ def approve_device_api(device_id: str, config: DeviceConfig, db: Session = Depen
         "telemetry_interval": config.telemetry_interval,
         "enabled": config.enabled
     }
-
-    payload = {
-        "type": "config",
-        "payload": config_data
-    }
-    
+    payload = {"type": "config", "payload": config_data}
     topic = MQTT_CONFIG_TOPIC.format(device_id)
     if mqtt_client:
         mqtt_client.publish(topic, json.dumps(payload))
         print(f"\n[Platform] Initial Configuration sent to {topic}")
-        
     return {"device": node, "configuration": config_data}
 
 @app.post("/devices/{device_id}/config")
 def update_device_config_api(device_id: str, config: DeviceConfig, db: Session = Depends(get_db)):
-    """อัปเดต Configuration ของอุปกรณ์ที่ Active อยู่แล้ว"""
     node = db.query(Node).filter(Node.node_id == device_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Device not found")
-    
     if config.device_name:
         node.device_name = config.device_name
     if config.room_id:
         node.room_id = config.room_id
-        
+    caps = {}
+    if node.capabilities:
+        if isinstance(node.capabilities, str):
+            try:
+                caps = json.loads(node.capabilities)
+                if isinstance(caps, str):
+                    caps = json.loads(caps)
+            except:
+                pass
+        elif isinstance(node.capabilities, dict):
+            caps = node.capabilities
+    if not isinstance(caps, dict):
+        caps = {}    
+    caps["sampling_interval"] = config.sampling_interval
+    caps["telemetry_interval"] = config.telemetry_interval
+    node.capabilities = caps 
     db.commit()
     db.refresh(node)
-
     config_data = {
         "device_id": device_id,
         "config_version": 2, # อัปเดตเวอร์ชัน
@@ -287,17 +318,11 @@ def update_device_config_api(device_id: str, config: DeviceConfig, db: Session =
         "telemetry_interval": config.telemetry_interval,
         "enabled": config.enabled
     }
-
-    payload = {
-        "type": "config",
-        "payload": config_data
-    }
-    
+    payload = {"type": "config", "payload": config_data}
     topic = MQTT_CONFIG_TOPIC.format(device_id)
     if mqtt_client:
         mqtt_client.publish(topic, json.dumps(payload))
         print(f"\n[Platform] Updated Configuration sent to {topic}")
-        
     return {"device": node, "configuration": config_data}
 
 @app.get("/devices/{device_id}/telemetry")
