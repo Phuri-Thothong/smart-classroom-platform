@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2 } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 import Sidebar from './components/Sidebar';
@@ -43,13 +43,17 @@ export default function App() {
     return isValid ? selectedGraphNode : graphNodes[0].node_id;
   }, [graphNodes, selectedGraphNode]);
 
-  const offlineCount = useMemo(() => {
-    return filteredDevices.filter(d => d.status === 'offline').length;
+  const offlineNodes = useMemo(() => {
+    return filteredDevices.filter(d => d.status === 'offline').map(d => d.node_id);
   }, [filteredDevices]);
+  const offlineCount = offlineNodes.length;
 
-  const offlineGatewaysCount = useMemo(() => {
-    return Object.values(gatewayStatus).filter(status => status === 'offline').length;
+  const offlineGateways = useMemo(() => {
+    return Object.entries(gatewayStatus)
+      .filter(([, status]) => status === 'offline')
+      .map(([id]) => id);
   }, [gatewayStatus]);
+  const offlineGatewaysCount = offlineGateways.length;
 
   const fetchGateways = useCallback(() => {
     fetch(`${API_BASE_URL}/gateways/status`)
@@ -305,22 +309,35 @@ export default function App() {
 
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
                   <h3 className="text-lg font-semibold text-slate-800 mb-4">System Alerts</h3>
-                  <div className={`flex-1 flex items-center justify-center border-2 border-dashed rounded-lg p-6 
+                  <div className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-4 
                     ${offlineGatewaysCount > 0 ? 'border-red-500 bg-red-50' : 
                       offlineCount > 0 ? 'border-orange-200 bg-orange-50/50' : 'border-slate-100'}`}
                   >
                     {offlineGatewaysCount > 0 ? (
-                      <div className="text-center animate-pulse">
-                        <ServerCrash className="mx-auto text-red-600 mb-2" size={36} />
+                      <div className="text-center w-full">
+                        <ServerCrash className="mx-auto text-red-600 mb-2 animate-pulse" size={36} />
                         <p className="text-base font-bold text-red-700">CRITICAL ERROR</p>
                         <p className="text-sm font-semibold text-red-600 mt-1">{offlineGatewaysCount} Gateway(s) Offline</p>
-                        <p className="text-xs text-red-500 mt-1">Classroom network is down. Reboot required.</p>
+                        <div className="mt-3 bg-red-100/50 rounded-lg p-3 max-h-24 overflow-y-auto text-xs text-red-700 text-left w-full space-y-2 border border-red-200">
+                          {offlineGateways.map(id => (
+                            <div key={id} className="flex items-center font-medium">
+                              <AlertTriangle size={12} className="mr-2 shrink-0" /> {id}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : offlineCount > 0 ? (
-                      <div className="text-center">
+                      <div className="text-center w-full">
                         <ServerCrash className="mx-auto text-orange-500 mb-2" size={32} />
                         <p className="text-sm font-semibold text-orange-700">{offlineCount} Device(s) Offline</p>
-                        <p className="text-xs text-orange-500 mt-1">Connection lost. Check node power.</p>
+
+                        <div className="mt-3 bg-orange-100/50 rounded-lg p-3 max-h-24 overflow-y-auto text-xs text-orange-700 text-left w-full space-y-2 border border-orange-200">
+                          {offlineNodes.map(id => (
+                            <div key={id} className="flex items-center font-medium">
+                              <AlertTriangle size={12} className="mr-2 shrink-0" /> {id}
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     ) : (
                       <div className="text-center">
