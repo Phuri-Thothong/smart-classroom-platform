@@ -14,7 +14,7 @@ export default function App() {
   const [telemetryData, setTelemetryData] = useState([]);
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [deviceStatus, setDeviceStatus] = useState({});
-
+  const [gatewayStatus, setGatewayStatus] = useState({});
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
   const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
@@ -46,6 +46,17 @@ export default function App() {
   const offlineCount = useMemo(() => {
     return filteredDevices.filter(d => d.status === 'offline').length;
   }, [filteredDevices]);
+
+  const offlineGatewaysCount = useMemo(() => {
+    return Object.values(gatewayStatus).filter(status => status === 'offline').length;
+  }, [gatewayStatus]);
+
+  const fetchGateways = useCallback(() => {
+    fetch(`${API_BASE_URL}/gateways/status`)
+      .then(res => res.json())
+      .then(data => setGatewayStatus(data))
+      .catch(err => console.error("Gateway Fetch Error:", err));
+  }, []);
 
   const fetchTelemetry = useCallback(() => {
     if (!activeGraphNode) return;
@@ -84,9 +95,13 @@ export default function App() {
 
   useEffect(() => {
     fetchDevices();
-    const interval = setInterval(fetchDevices, 5000);
+    fetchGateways();
+    const interval = setInterval(() => {
+      fetchDevices();
+      fetchGateways();
+    }, 5000);
     return () => clearInterval(interval);
-  }, [fetchDevices]);
+  }, [fetchDevices, fetchGateways]);
 
   useEffect(() => {
     fetchTelemetry();
@@ -290,12 +305,22 @@ export default function App() {
 
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
                   <h3 className="text-lg font-semibold text-slate-800 mb-4">System Alerts</h3>
-                  <div className={`flex-1 flex items-center justify-center border-2 border-dashed rounded-lg p-6 ${offlineCount > 0 ? 'border-red-100 bg-red-50/50' : 'border-slate-100'}`}>
-                    {offlineCount > 0 ? (
+                  <div className={`flex-1 flex items-center justify-center border-2 border-dashed rounded-lg p-6 
+                    ${offlineGatewaysCount > 0 ? 'border-red-500 bg-red-50' : 
+                      offlineCount > 0 ? 'border-orange-200 bg-orange-50/50' : 'border-slate-100'}`}
+                  >
+                    {offlineGatewaysCount > 0 ? (
+                      <div className="text-center animate-pulse">
+                        <ServerCrash className="mx-auto text-red-600 mb-2" size={36} />
+                        <p className="text-base font-bold text-red-700">CRITICAL ERROR</p>
+                        <p className="text-sm font-semibold text-red-600 mt-1">{offlineGatewaysCount} Gateway(s) Offline</p>
+                        <p className="text-xs text-red-500 mt-1">Classroom network is down. Reboot required.</p>
+                      </div>
+                    ) : offlineCount > 0 ? (
                       <div className="text-center">
-                        <ServerCrash className="mx-auto text-red-500 mb-2" size={32} />
-                        <p className="text-sm font-semibold text-red-700">{offlineCount} Device{offlineCount > 1 ? 's' : ''} Offline</p>
-                        <p className="text-xs text-red-500 mt-1">Connection lost. Check power or network.</p>
+                        <ServerCrash className="mx-auto text-orange-500 mb-2" size={32} />
+                        <p className="text-sm font-semibold text-orange-700">{offlineCount} Device(s) Offline</p>
+                        <p className="text-xs text-orange-500 mt-1">Connection lost. Check node power.</p>
                       </div>
                     ) : (
                       <div className="text-center">

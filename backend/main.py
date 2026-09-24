@@ -24,7 +24,7 @@ MQTT_METADATA_TOPIC = f"{PREFIX}/nodes/+/metadata"
 MQTT_CONFIG_TOPIC = f"{PREFIX}/nodes/{{}}/config"
 MQTT_TELEMETRY_TOPIC = f"{PREFIX}/nodes/+/telemetry"
 MQTT_COMMAND_TOPIC = f"{PREFIX}/nodes/{{}}/command"
-
+gateway_statuses = {}
 mqtt_client = None
 
 # --- Pydantic Schema ---
@@ -40,10 +40,22 @@ def on_connect(client, userdata, flags, reason_code, properties):
         print("[Platform] Connected to MQTT Broker: Success")
         client.subscribe(MQTT_METADATA_TOPIC)
         client.subscribe(MQTT_TELEMETRY_TOPIC)
+        client.subscribe(f"{PREFIX}/gateways/+/status")
     else:
         print(f"[Platform] MQTT connection failed. Code: {reason_code}")
 
 def on_message(client, userdata, msg):
+    topic = msg.topic
+    payload = msg.payload.decode()
+    if "/gateways/" in topic and topic.endswith("/status"):
+        try:
+            data = json.loads(payload)
+            gateway_id = topic.split("/")[-2]
+            gateway_statuses[gateway_id] = data.get("status", "offline")
+            print(f"[Gateway Status] {gateway_id} is now {gateway_statuses[gateway_id]}")
+        except Exception as e:
+            print(f"Error parsing gateway status: {e}")
+        return
     print(f"\n[Platform] Received MQTT message on {msg.topic}")
     
     try:
@@ -291,6 +303,10 @@ def delete_device(device_id: str, db: Session = Depends(get_db)):
     db.delete(device)
     db.commit()
     return {"message": f"Device {device_id} deleted successfully"}
+
+@app.get("/gateways/status")
+def get_gateway_status():
+    return gateway_statuses
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -37,6 +37,8 @@ sock.bind((UDP_IP, UDP_PORT))
 # ==========================================
 def on_connect(client, userdata, flags, reason_code, properties):
     logger.info(f"[MQTT] Connected to Cloud (Code {reason_code})")
+    status_topic = f"{PREFIX}/gateways/{GATEWAY_ID}/status"
+    client.publish(status_topic, payload='{"status": "online"}', qos=1, retain=True)
     client.subscribe(f"{PREFIX}/nodes/+/config")
     client.subscribe(f"{PREFIX}/nodes/+/command")
     logger.info("[MQTT] Subscribed to Config & Command topics")
@@ -64,8 +66,12 @@ def on_message(client, userdata, msg):
                 logger.warning(f"[Gateway] Error: No local address found for {device_id}")
 
 mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
+lwt_topic = f"{PREFIX}/gateways/{GATEWAY_ID}/status"
+mqtt_client.will_set(lwt_topic, payload='{"status": "offline"}', qos=1, retain=True)
 mqtt_client.on_connect = on_connect
 mqtt_client.on_message = on_message
+logger.info(f"Connecting to MQTT Broker {MQTT_BROKER}:{MQTT_PORT}...")
+mqtt_client.connect(MQTT_BROKER, MQTT_PORT, 60)
 
 # ==========================================
 # ESP-NOW Receive Callback Simulation
