@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime
 from sqlalchemy import desc
 from pydantic import BaseModel
+from typing import Optional
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,6 +32,13 @@ mqtt_client = None
 class RoomCreate(BaseModel):
     room_id: str
     room_name: str
+
+class DeviceConfig(BaseModel):
+    device_name: Optional[str] = None
+    room_id: Optional[str] = None
+    sampling_interval: int = 5
+    telemetry_interval: int = 10
+    enabled: bool = True
 
 # =========================================================
 # MQTT Callbacks (VERSION 2)
@@ -222,22 +230,27 @@ def get_device_api(device_id: str, db: Session = Depends(get_db)):
     return node
 
 @app.post("/devices/{device_id}/approve")
-def approve_device_api(device_id: str, db: Session = Depends(get_db)):
-    """อนุมัติอุปกรณ์และส่ง Configuration ผ่าน MQTT"""
+def approve_device_api(device_id: str, config: DeviceConfig, db: Session = Depends(get_db)):
+    """อนุมัติอุปกรณ์และส่ง Configuration แรกเริ่มผ่าน MQTT"""
     node = db.query(Node).filter(Node.node_id == device_id).first()
     if not node:
-        return {"error": "Device not found"}
+        raise HTTPException(status_code=404, detail="Device not found")
     
     node.status = "approved"
+    if config.device_name:
+        node.device_name = config.device_name
+    if config.room_id:
+        node.room_id = config.room_id
+        
     db.commit()
     db.refresh(node)
 
     config_data = {
         "device_id": device_id,
         "config_version": 1,
-        "sampling_interval": 5,
-        "telemetry_interval": 10,
-        "enabled": True
+        "sampling_interval": config.sampling_interval,
+        "telemetry_interval": config.telemetry_interval,
+        "enabled": config.enabled
     }
 
     payload = {
@@ -248,7 +261,43 @@ def approve_device_api(device_id: str, db: Session = Depends(get_db)):
     topic = MQTT_CONFIG_TOPIC.format(device_id)
     if mqtt_client:
         mqtt_client.publish(topic, json.dumps(payload))
-        print(f"\n[Platform] Configuration sent to {topic}")
+        print(f"\n[Platform] Initial Configuration sent to {topic}")
+        
+    return {"device": node, "configuration": config_data}
+
+@app.post("/devices/{device_id}/config")
+def update_device_config_api(device_id: str, config: DeviceConfig, db: Session = Depends(get_db)):
+    """อัปเดต Configuration ของอุปกรณ์ที่ Active อยู่แล้ว"""
+    node = db.query(Node).filter(Node.node_id == device_id).first()
+    if not node:
+        raise HTTPException(status_code=404, detail="Device not found")
+    
+    if config.device_name:
+        node.device_name = config.device_name
+    if config.room_id:
+        node.room_id = config.room_id
+        
+    db.commit()
+    db.refresh(node)
+
+    config_data = {
+        "device_id": device_id,
+        "config_version": 2, # อัปเดตเวอร์ชัน
+        "sampling_interval": config.sampling_interval,
+        "telemetry_interval": config.telemetry_interval,
+        "enabled": config.enabled
+    }
+
+    payload = {
+        "type": "config",
+        "payload": config_data
+    }
+    
+    topic = MQTT_CONFIG_TOPIC.format(device_id)
+    if mqtt_client:
+        mqtt_client.publish(topic, json.dumps(payload))
+        print(f"\n[Platform] Updated Configuration sent to {topic}")
+        
     return {"device": node, "configuration": config_data}
 
 @app.get("/devices/{device_id}/telemetry")
@@ -293,6 +342,20 @@ def create_room(room: RoomCreate, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_room)
     return {"message": f"Room {room.room_id} created successfully"}
+
+@app.delete("/rooms/{room_id}")
+def delete_room(room_id: str, db: Session = Depends(get_db)):
+    room = db.query(Room).filter(Room.room_id == room_id).first()
+    if not room:
+        raise HTTPException(status_code=404, detail="Room not found")
+
+    nodes = db.query(Node).filter(Node.room_id == room_id).all()
+    for node in nodes:
+        node.room_id = None
+        
+    db.delete(room)
+    db.commit()
+    return {"message": f"Room {room_id} deleted and associated nodes unassigned."}
 
 @app.delete("/devices/{device_id}")
 def delete_device(device_id: str, db: Session = Depends(get_db)):
