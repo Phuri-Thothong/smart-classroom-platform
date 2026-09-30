@@ -1,7 +1,8 @@
 import json
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime
+from datetime import datetime, time, timedelta
+from apscheduler.schedulers.background import BackgroundScheduler
 from sqlalchemy import desc
 from pydantic import BaseModel
 from typing import Optional
@@ -13,7 +14,7 @@ import uvicorn
 
 # --- Import Database Tools ---
 from database import engine, Base, SessionLocal, get_db
-from models import Node, Room, Telemetry
+from models import Node, Room, Telemetry, AutomationRule, ClassSchedule
 
 # =========================================================
 # MQTT Configuration
@@ -39,6 +40,64 @@ class DeviceConfig(BaseModel):
     sampling_interval: int = 5
     telemetry_interval: int = 10
     enabled: bool = True
+
+class RuleCreate(BaseModel):
+    name: str
+    sensor_node_id: str
+    sensor_key: str
+    condition_operator: str
+    condition_value: float
+    target_node_id: str
+    action: str
+
+class ScheduleCreate(BaseModel):
+    room_id: str
+    day_of_week: int
+    start_time: str # "HH:MM:SS"
+    end_time: str   # "HH:MM:SS"
+    subject_code: str
+    subject_name: str
+
+# =========================================================
+# BACKGROUND SCHEDULER (TIME-DRIVEN AUTOMATION)
+# =========================================================
+def check_schedules_and_trigger():
+    """ตรวจสอบตารางเรียนทุกนาที เพื่อสั่งเปิด/ปิดอุปกรณ์ในห้องอัตโนมัติ"""
+    db = SessionLocal()
+    try:
+        now = datetime.now()
+        # แปลง isoweekday (Mon=1, Sun=7) เป็นระบบ 1=Sun, 2=Mon...7=Sat
+        current_day = (now.isoweekday() % 7) + 1 
+        current_time_obj = now.time()
+        # ค้นหาตารางเรียนของวันนี้
+        todays_classes = db.query(ClassSchedule).filter(ClassSchedule.day_of_week == current_day).all()
+        for cls in todays_classes:
+            # เงื่อนไข: เปิดแอร์/ไฟ ล่วงหน้า 15 นาที
+            start_datetime = datetime.combine(now.date(), cls.start_time)
+            pre_start_time = (start_datetime - timedelta(minutes=15)).time()
+            # ตัดวินาทีและไมโครวินาทีทิ้งเพื่อเปรียบเทียบแค่ชั่วโมงกับนาที
+            if current_time_obj.hour == pre_start_time.hour and current_time_obj.minute == pre_start_time.minute:
+                print(f"\n[Scheduler] Pre-start class '{cls.subject_code}' in Room {cls.room_id}. Turning ON devices...")
+                trigger_room_devices(db, cls.room_id, "ON")
+            # เงื่อนไข: ปิดแอร์/ไฟ ทันทีเมื่อหมดเวลาเรียน
+            if current_time_obj.hour == cls.end_time.hour and current_time_obj.minute == cls.end_time.minute:
+                print(f"\n[Scheduler] End class '{cls.subject_code}' in Room {cls.room_id}. Turning OFF devices...")
+                trigger_room_devices(db, cls.room_id, "OFF")
+                
+    finally:
+        db.close()
+
+def trigger_room_devices(db: Session, room_id: str, action: str):
+    """ส่งคำสั่งเปิด/ปิด ไปยังอุปกรณ์ที่เป็น controller ทั้งหมดในห้อง"""
+    devices = db.query(Node).filter(
+        Node.room_id == room_id, 
+        Node.device_type.in_(["lighting", "air_control"])
+    ).all()
+    for dev in devices:
+        payload = {"type": "command", "payload": {"device_id": dev.node_id, "action": action}}
+        topic = MQTT_COMMAND_TOPIC.format(dev.node_id)
+        if mqtt_client:
+            mqtt_client.publish(topic, json.dumps(payload))
 
 # =========================================================
 # MQTT Callbacks (VERSION 2)
@@ -135,6 +194,36 @@ def on_message(client, userdata, msg):
                 db.commit()
                 print(f"[Platform] => Saved Telemetry data to Database! ({data.get('data')})")
 
+                # ===================================================
+                # AUTOMATION ENGINE: ประเมินเงื่อนไขเมื่อเซนเซอร์อัปเดต
+                # ===================================================
+                active_rules = db.query(AutomationRule).filter(
+                    AutomationRule.sensor_node_id == device_id,
+                    AutomationRule.is_active == True
+                ).all()
+                
+                sensor_values = data.get("data", {})
+                for rule in active_rules:
+                    if rule.sensor_key in sensor_values:
+                        try:
+                            current_val = float(sensor_values[rule.sensor_key])
+                            threshold = rule.condition_value
+                            is_triggered = False
+
+                            if rule.condition_operator == ">" and current_val > threshold: is_triggered = True
+                            elif rule.condition_operator == "<" and current_val < threshold: is_triggered = True
+                            elif rule.condition_operator == "==" and current_val == threshold: is_triggered = True
+                            elif rule.condition_operator == "!=" and current_val != threshold: is_triggered = True
+
+                            if is_triggered:
+                                action_payload = {"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}}
+                                topic = MQTT_COMMAND_TOPIC.format(rule.target_node_id)
+                                if mqtt_client:
+                                    mqtt_client.publish(topic, json.dumps(action_payload))
+                                    print(f"\n[Automation Engine] TRIGGERED Rule '{rule.name}' -> Sent {rule.action} to {rule.target_node_id}")
+                        except ValueError:
+                            pass
+                # ===================================================
         finally:
             db.close() 
 
@@ -159,7 +248,13 @@ async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
     print("[Platform] Starting MQTT service via Lifespan...")
     threading.Thread(target=start_mqtt, daemon=True).start()
+    # เริ่มระบบ Scheduler เช็กตารางเวลาทุกๆ 1 นาที
+    scheduler = BackgroundScheduler()
+    scheduler.add_job(check_schedules_and_trigger, 'cron', minute='*')
+    scheduler.start()
+    print("[Platform] Background Scheduler Started...")
     yield 
+    scheduler.shutdown()
 
 app = FastAPI(title="Smart Classroom Platform", version="1.0.0", lifespan=lifespan)
 
@@ -408,6 +503,58 @@ def get_gateway_status(db: Session = Depends(get_db)):
     for gw_id, status in gateway_statuses.items():
         response_statuses[gw_id] = status
     return response_statuses
+
+# =========================================================
+# AUTOMATION & SCHEDULE APIs
+# =========================================================
+@app.get("/rules")
+def get_rules(db: Session = Depends(get_db)):
+    return db.query(AutomationRule).all()
+
+@app.post("/rules")
+def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
+    db_rule = AutomationRule(**rule.dict())
+    db.add(db_rule)
+    db.commit()
+    db.refresh(db_rule)
+    return db_rule
+
+@app.delete("/rules/{rule_id}")
+def delete_rule(rule_id: int, db: Session = Depends(get_db)):
+    db.query(AutomationRule).filter(AutomationRule.rule_id == rule_id).delete()
+    db.commit()
+    return {"status": "success"}
+
+@app.get("/schedules")
+def get_schedules(db: Session = Depends(get_db)):
+    return db.query(ClassSchedule).all()
+
+@app.post("/schedules")
+def create_schedule(schedule: ScheduleCreate, db: Session = Depends(get_db)):
+    try:
+        st_time = datetime.strptime(schedule.start_time, "%H:%M:%S").time()
+        en_time = datetime.strptime(schedule.end_time, "%H:%M:%S").time()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid time format. Use HH:MM:SS")
+        
+    db_schedule = ClassSchedule(
+        room_id=schedule.room_id,
+        day_of_week=schedule.day_of_week,
+        start_time=st_time,
+        end_time=en_time,
+        subject_code=schedule.subject_code,
+        subject_name=schedule.subject_name
+    )
+    db.add(db_schedule)
+    db.commit()
+    db.refresh(db_schedule)
+    return db_schedule
+
+@app.delete("/schedules/{schedule_id}")
+def delete_schedule(schedule_id: int, db: Session = Depends(get_db)):
+    db.query(ClassSchedule).filter(ClassSchedule.id == schedule_id).delete()
+    db.commit()
+    return {"status": "success"}
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)
