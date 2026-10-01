@@ -37,10 +37,10 @@ export default function RuleManager({ devices }) {
   
   const isBooleanKey = formData.sensor_key === 'occupancy';
   const hasSelectedSensor = Boolean(formData.sensor_node_id);
-  const selectedSensorType = (() => {
-    const sensor = triggerNodes.find(s => s.node_id === formData.sensor_node_id);
-    return sensor ? sensor.device_type : '';
-  })();
+  const selectedSensorObj = triggerNodes.find(s => s.node_id === formData.sensor_node_id);
+  const selectedSensorType = selectedSensorObj?.device_type || '';
+  const selectedSensorRoom = selectedSensorObj?.room_id || '';
+  const availableTargets = controllers.filter(c => c.room_id === selectedSensorRoom);
 
   const toggleRule = async (ruleId) => {
     try {
@@ -113,7 +113,8 @@ export default function RuleManager({ devices }) {
       sensor_node_id: newNodeId,
       sensor_key: defaultKey,
       condition_operator: defaultOp,
-      condition_value: defaultVal
+      condition_value: defaultVal,
+      target_node_id: ''
     });
   };
 
@@ -212,7 +213,7 @@ export default function RuleManager({ devices }) {
               <select required disabled={!hasSelectedSensor} className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                 value={formData.target_node_id} onChange={e => setFormData({...formData, target_node_id: e.target.value})}>
                 <option value="">Select Target...</option>
-                {controllers.map(c => <option key={c.node_id} value={c.node_id}>{c.device_name || c.node_id}</option>)}
+                {availableTargets.map(c => <option key={c.node_id} value={c.node_id}>{c.device_name || c.node_id}</option>)}
               </select>
             </div>
 

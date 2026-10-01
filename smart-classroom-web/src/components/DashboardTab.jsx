@@ -17,8 +17,8 @@ export default function DashboardTab({
   const uniqueRooms = useMemo(() => ['All', ...new Set(roomsList.map(r => r.room_id))], [roomsList]);
   
   const filteredDevices = useMemo(() => {
-    return devices.filter(d => {
-      const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;
+    const result = devices.filter(d => {
+      const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;  
       let matchType = true;
       if (selectedType !== 'All') {
         const targetType = selectedType.toLowerCase().replace(' ', '_');
@@ -26,6 +26,14 @@ export default function DashboardTab({
         matchType = deviceType.includes(targetType);
       }
       return matchRoom && matchType;
+    });
+    return result.sort((a, b) => {
+      const roomA = a.room_id || 'Z_Unassigned';
+      const roomB = b.room_id || 'Z_Unassigned';
+      if (roomA === roomB) {
+        return (a.node_id || '').localeCompare(b.node_id || '');
+      }
+      return roomA.localeCompare(roomB);
     });
   }, [devices, selectedRoom, selectedType]);
 
