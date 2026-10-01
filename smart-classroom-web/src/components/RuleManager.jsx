@@ -7,14 +7,14 @@ export default function RuleManager({ devices }) {
   const [rules, setRules] = useState([]);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
-    name: '', sensor_node_id: '', sensor_key: 'temperature', 
-    condition_operator: '>', condition_value: '28', 
+    name: '', sensor_node_id: '', sensor_key: '', 
+    condition_operator: '>', condition_value: '', 
     target_node_id: '', action: 'ON'
   });
 
   const fetchRules = async () => {
     try {
-      const res = await fetch("${API_BASE_URL}/rules");
+      const res = await fetch(`${API_BASE_URL}/rules`);
       if (res.ok) setRules(await res.json());
     } catch (error) { 
       console.error("Error fetching rules:", error.message); 
@@ -23,7 +23,7 @@ export default function RuleManager({ devices }) {
 
   useEffect(() => { 
     let isMounted = true;
-    fetch("${API_BASE_URL}/rules")
+    fetch(`${API_BASE_URL}/rules`)
       .then(res => res.json())
       .then(data => { if (isMounted) setRules(data); })
       .catch(err => console.error("Error:", err.message));
@@ -32,10 +32,15 @@ export default function RuleManager({ devices }) {
   }, []);
 
   const approvedDevices = devices.filter(d => d.status !== 'pending');
-  const sensors = approvedDevices.filter(d => d.device_type !== 'lighting' && d.device_type !== 'air_control');
+  const triggerNodes = approvedDevices.filter(d => d.device_type === 'occupancy' || d.device_type === 'energy_node');
   const controllers = approvedDevices.filter(d => d.device_type === 'lighting' || d.device_type === 'air_control');
-  const isBooleanKey = formData.sensor_key === 'occupancy' || formData.sensor_key === 'status' || formData.sensor_key === 'motion';
+  
+  const isBooleanKey = formData.sensor_key === 'occupancy';
   const hasSelectedSensor = Boolean(formData.sensor_node_id);
+  const selectedSensorType = (() => {
+    const sensor = triggerNodes.find(s => s.node_id === formData.sensor_node_id);
+    return sensor ? sensor.device_type : '';
+  })();
 
   const toggleRule = async (ruleId) => {
     try {
@@ -66,7 +71,7 @@ export default function RuleManager({ devices }) {
         finalValue = parseFloat(formData.condition_value);
       }
 
-      const res = await fetch("${API_BASE_URL}/rules", {
+      const res = await fetch(`${API_BASE_URL}/rules`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -76,11 +81,40 @@ export default function RuleManager({ devices }) {
       });
       if (!res.ok) throw new Error("Failed to save rule into database");
       setIsAdding(false);
-      setFormData({ name: '', sensor_node_id: '', sensor_key: 'temperature', condition_operator: '>', condition_value: '28', target_node_id: '', action: 'ON' });
+      setFormData({ name: '', sensor_node_id: '', sensor_key: '', condition_operator: '>', condition_value: '', target_node_id: '', action: 'ON' });
       fetchRules();
     } catch (error) { 
       alert(`Error saving rule: ${error.message}`); 
     }
+  };
+
+  const handleSensorChange = (e) => {
+    const newNodeId = e.target.value;
+    const newSensorObj = triggerNodes.find(s => s.node_id === newNodeId);
+    
+    let defaultKey = '';
+    let defaultOp = '>';
+    let defaultVal = '';
+
+    if (newSensorObj) {
+      if (newSensorObj.device_type === 'occupancy') {
+        defaultKey = 'occupancy';
+        defaultOp = '==';
+        defaultVal = 'TRUE';
+      } else if (newSensorObj.device_type === 'energy_node') {
+        defaultKey = 'power_usage_watts';
+        defaultOp = '>';
+        defaultVal = '100';
+      }
+    }
+
+    setFormData({
+      ...formData,
+      sensor_node_id: newNodeId,
+      sensor_key: defaultKey,
+      condition_operator: defaultOp,
+      condition_value: defaultVal
+    });
   };
 
   return (
@@ -114,38 +148,29 @@ export default function RuleManager({ devices }) {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1">Rule Name</label>
-              <input type="text" required placeholder="e.g. Turn on AC when hot"
+              <input type="text" required placeholder="e.g. Turn on AC when person detected"
                 className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200"
                 value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
             </div>
           </div>
 
           <div className="flex items-end gap-3 flex-wrap">
-            <div className="flex-1 min-w-37.5]">
-              <label className="block text-xs font-medium text-slate-500 mb-1">IF (Sensor / Device)</label>
+            <div className="flex-1 min-w-50">
+              <label className="block text-xs font-medium text-slate-500 mb-1">IF (Trigger Device)</label>
               <select required className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 bg-white"
-                value={formData.sensor_node_id} onChange={e => setFormData({...formData, sensor_node_id: e.target.value})}>
-                <option value="">Select Sensor...</option>
-                {sensors.map(s => <option key={s.node_id} value={s.node_id}>{s.device_name || s.node_id} ({s.device_type})</option>)}
+                value={formData.sensor_node_id} onChange={handleSensorChange}>
+                <option value="">Select Trigger...</option>
+                {triggerNodes.map(s => <option key={s.node_id} value={s.node_id}>{s.device_name || s.node_id} ({s.device_type})</option>)}
               </select>
             </div>
 
-            <div className="w-32">
+            <div className="w-40">
               <label className="block text-xs font-medium text-slate-500 mb-1">Key</label>
               <select disabled={!hasSelectedSensor} className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
-                value={formData.sensor_key} onChange={e => {
-                  const newKey = e.target.value;
-                  const isBool = newKey === 'occupancy' || newKey === 'status';
-                  setFormData({
-                    ...formData, 
-                    sensor_key: newKey,
-                    condition_operator: isBool ? '==' : '>',
-                    condition_value: isBool ? 'TRUE' : '28'
-                  });
-                }}>
-                <option value="temperature">Temp (°C)</option>
-                <option value="humidity">Humidity (%)</option>
-                <option value="occupancy">Occupancy (Person)</option>
+                value={formData.sensor_key} onChange={e => setFormData({...formData, sensor_key: e.target.value})}>
+                {!selectedSensorType && <option value="">Select Device First</option>}
+                {selectedSensorType === 'occupancy' && <option value="occupancy">Occupancy (Person)</option>}
+                {selectedSensorType === 'energy_node' && <option value="power_usage_watts">Power (Watts)</option>}
               </select>
             </div>
 
@@ -170,11 +195,11 @@ export default function RuleManager({ devices }) {
               {isBooleanKey ? (
                 <select disabled={!hasSelectedSensor} className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 font-medium bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                   value={formData.condition_value} onChange={e => setFormData({...formData, condition_value: e.target.value})}>
-                  <option value="TRUE">TRUE</option>
-                  <option value="FALSE">FALSE</option>
+                  <option value="TRUE">TRUE (Detected)</option>
+                  <option value="FALSE">FALSE (Clear)</option>
                 </select>
               ) : (
-                <input type="number" step="0.1" required placeholder="28.0" disabled={!hasSelectedSensor}
+                <input type="number" step="0.1" required placeholder="e.g. 100" disabled={!hasSelectedSensor}
                   className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                   value={formData.condition_value} onChange={e => setFormData({...formData, condition_value: e.target.value})} />
               )}
@@ -182,7 +207,7 @@ export default function RuleManager({ devices }) {
 
             <div className="text-slate-400 font-medium text-sm pb-2">THEN</div>
 
-            <div className="flex-1 min-w-37.5]">
+            <div className="flex-1 min-w-50">
               <label className="block text-xs font-medium text-slate-500 mb-1">Target Device</label>
               <select required disabled={!hasSelectedSensor} className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                 value={formData.target_node_id} onChange={e => setFormData({...formData, target_node_id: e.target.value})}>
