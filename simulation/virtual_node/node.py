@@ -70,7 +70,6 @@ def run_node(device_id, device_type, node_port, gateway_port):
     threading.Thread(target=udp_listener, daemon=True).start()
     print(f"[Node] Started {device_id} ({device_type}) on port {node_port} targeting Gateway port {gateway_port}")
 
-    # Main Loop
     while True:
         if not state["is_configured"]:
             metadata = {
@@ -85,32 +84,49 @@ def run_node(device_id, device_type, node_port, gateway_port):
             print(f"[Node: {device_id}] Sent Metadata via ESP-NOW Broadcast")
             time.sleep(5) 
         else:
-            if state["device_status"] == "ON":
-                power = round(random.uniform(50.0, 70.0), 2)
+            telemetry_data = {}
+
+            if device_type == "sensor":
+                telemetry_data = {
+                    "temperature": round(random.uniform(25.0, 35.0), 1),
+                    "humidity": round(random.uniform(50.0, 80.0), 1)
+                }
+            elif device_type == "occupancy":
+                telemetry_data = {
+                    "occupancy": random.choice([True, False])
+                }
+            elif device_type == "power_node":
+                power = round(random.uniform(50.0, 150.0), 2) if state["device_status"] == "ON" else 0.0
+                telemetry_data = {
+                    "status": state["device_status"],
+                    "power_usage_watts": power
+                }
+            elif device_type == "lighting" or device_type == "air_control":
+                telemetry_data = {
+                    "status": state["device_status"]
+                }
             else:
-                power = 0.0
+                telemetry_data = {
+                    "status": state["device_status"]
+                }
 
             telemetry = {
                 "type": "telemetry",
                 "payload": {
                     "device_id": device_id,
                     "timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-                    "data": {
-                        "status": state["device_status"],
-                        "power_usage_watts": power
-                    }
+                    "data": telemetry_data
                 }
             }
             sock.sendto(json.dumps(telemetry).encode(), (GATEWAY_IP, gateway_port))
-            print(f"[Node: {device_id}] Sent Telemetry (Status: {state['device_status']}, Power: {power} W)")
+            print(f"[Node: {device_id}] Sent Telemetry: {telemetry_data}")
             
             jitter = round(random.uniform(0.1, 2.0), 2)
             sleep_time = state["telemetry_interval"] + jitter
-            print(f"[Node: {device_id}] Next transmission in {sleep_time:.2f} seconds (included {jitter:.2f}s jitter)")
             time.sleep(sleep_time)
 
 if __name__ == "__main__":
-    d_id = sys.argv[1] if len(sys.argv) > 1 else "sim-lighting-01"
+    d_id = sys.argv[1] if len(sys.argv) > 1 else "sim-light-01"
     d_type = sys.argv[2] if len(sys.argv) > 2 else "lighting"
     port = int(sys.argv[3]) if len(sys.argv) > 3 else random.randint(6000, 7000)
     g_port = int(sys.argv[4]) if len(sys.argv) > 4 else 5000 
