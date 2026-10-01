@@ -95,7 +95,7 @@ def run_node(device_id, device_type, node_port, gateway_port):
                 telemetry_data = {
                     "occupancy": random.choice([True, False])
                 }
-            elif device_type == "power_node":
+            elif device_type == "energy_node":
                 power = round(random.uniform(50.0, 150.0), 2) if state["device_status"] == "ON" else 0.0
                 telemetry_data = {
                     "status": state["device_status"],

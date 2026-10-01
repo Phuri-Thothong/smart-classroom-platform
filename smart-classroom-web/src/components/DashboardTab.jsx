@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3 } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -12,6 +12,7 @@ export default function DashboardTab({
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
+  const [timeRange, setTimeRange] = useState('20');
 
   const uniqueRooms = useMemo(() => {
     return ['All', ...new Set(roomsList.map(r => r.room_id))];
@@ -27,7 +28,7 @@ export default function DashboardTab({
 
   const graphNodes = useMemo(() => {
     return filteredDevices.filter(d => 
-      d.status !== 'pending' && (d.device_type === 'lighting' || d.device_type === 'air_control')
+      d.status !== 'pending' && d.device_type === 'energy_node'
     );
   }, [filteredDevices]);
 
@@ -51,7 +52,7 @@ export default function DashboardTab({
 
   const fetchTelemetry = useCallback(() => {
     if (!activeGraphNode) return;
-    fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry?limit=20`)
+    fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry?limit=${timeRange}`)
       .then(res => res.json())
       .then(data => {
         const formattedData = data.map(item => {
@@ -64,8 +65,8 @@ export default function DashboardTab({
         }).reverse();
         setTelemetryData(formattedData);
       })
-      .catch(err => console.error("Telemetry Error:", err));
-  }, [activeGraphNode]);
+      .catch(err => console.error("Telemetry Error:", err.message));
+  }, [activeGraphNode, timeRange]);
 
   useEffect(() => {
     fetchTelemetry();
@@ -77,7 +78,8 @@ export default function DashboardTab({
     if (!type) return <Activity size={18} />;
     if (type.includes('light')) return <Lightbulb size={18} />;
     if (type.includes('air')) return <Wind size={18} />;
-    if (type.includes('sensor') || type.includes('occupancy')) return <UserCheck size={18} />;
+    if (type.includes('occupancy')) return <UserCheck size={18} />;
+    if (type.includes('sensor')) return <Thermometer size={18} />;
     return <Activity size={18} />;
   };
 
@@ -250,25 +252,46 @@ export default function DashboardTab({
 
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-semibold text-slate-800">Energy & Telemetry Trends</h3>
-          <select 
-            value={activeGraphNode} 
-            onChange={(e) => setSelectedGraphNode(e.target.value)} 
-            className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-slate-200 px-3 py-1.5"
-            disabled={graphNodes.length === 0}
-          >
-            {graphNodes.length === 0 ? (
-              <option value="">No active devices</option>
-            ) : (
-              graphNodes.map(d => <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>)
-            )}
-          </select>
+          <h3 className="text-lg font-semibold text-slate-800">Room Power Consumption (Energy Trends)</h3>
+          
+          <div className="flex items-center gap-3">
+            <select
+              value={timeRange}
+              onChange={(e) => setTimeRange(e.target.value)}
+              disabled={graphNodes.length === 0}
+              className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-slate-200 px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="10">Latest 10 points</option>
+              <option value="20">Latest 20 points</option>
+              <option value="50">Latest 50 points</option>
+              <option value="100">Latest 100 points</option>
+            </select>
+
+            <select 
+              value={activeGraphNode} 
+              onChange={(e) => setSelectedGraphNode(e.target.value)} 
+              disabled={graphNodes.length === 0}
+              className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-slate-200 px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {graphNodes.length === 0 ? (
+                <option value="">No Energy Node Connected</option>
+              ) : (
+                graphNodes.map(d => <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>)
+              )}
+            </select>
+          </div>
         </div>
         
-        <div className="h-64 w-full">
-          {!activeGraphNode || telemetryData.length === 0 ? (
+        <div className={`h-64 w-full transition-opacity ${graphNodes.length === 0 ? 'opacity-40' : 'opacity-100'}`}>
+          {graphNodes.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
+              <AlertTriangle className="text-amber-500 mb-2" size={28} />
+              <p className="text-sm font-medium text-slate-600">Energy Meter Component Locked</p>
+              <p className="text-xs text-slate-400 mt-1">Please onboard and approve an Energy Node (`energy_node`) to activate this chart.</p>
+            </div>
+          ) : !activeGraphNode || telemetryData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-lg">
-              No power data available for selected room
+              Waiting for telemetry data stream...
             </div>
           ) : (
             <ResponsiveContainer width="100%" height="100%">
