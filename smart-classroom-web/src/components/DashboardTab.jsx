@@ -19,7 +19,12 @@ export default function DashboardTab({
   const filteredDevices = useMemo(() => {
     return devices.filter(d => {
       const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;
-      const matchType = selectedType === 'All' || (d.device_type && d.device_type.toLowerCase().includes(selectedType.toLowerCase().replace(' ', '_')));
+      let matchType = true;
+      if (selectedType !== 'All') {
+        const targetType = selectedType.toLowerCase().replace(' ', '_');
+        const deviceType = (d.device_type || '').toLowerCase();
+        matchType = deviceType.includes(targetType);
+      }
       return matchRoom && matchType;
     });
   }, [devices, selectedRoom, selectedType]);
@@ -154,7 +159,7 @@ export default function DashboardTab({
           </div>
 
           <div className="px-5 pt-3 pb-0 border-b border-slate-100 flex space-x-4 overflow-x-auto">
-            {['All', 'Lighting', 'Air Control', 'Sensor'].map(type => (
+            {['All', 'Lighting', 'Air Control', 'Occupancy', 'Energy Node'].map(type => (
               <button 
                 key={type} onClick={() => setSelectedType(type)}
                 className={`pb-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${selectedType === type ? 'border-blue-500 text-blue-600' : 'border-transparent text-slate-500 hover:text-slate-700'}`}

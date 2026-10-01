@@ -12,8 +12,6 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
     const type = device.device_type;
     if (type === 'lighting' || type === 'air_control') {
       defaultGpio = { control_pin: 26 };
-    } else if (type === 'sensor') {
-      defaultGpio = { data_pin: 4 };
     } else if (type === 'occupancy') {
       defaultGpio = { out_pin: 27 };
     } else if (type === 'energy_node') {

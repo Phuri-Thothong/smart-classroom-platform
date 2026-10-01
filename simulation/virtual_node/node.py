@@ -86,12 +86,7 @@ def run_node(device_id, device_type, node_port, gateway_port):
         else:
             telemetry_data = {}
 
-            if device_type == "sensor":
-                telemetry_data = {
-                    "temperature": round(random.uniform(25.0, 35.0), 1),
-                    "humidity": round(random.uniform(50.0, 80.0), 1)
-                }
-            elif device_type == "occupancy":
+            if device_type == "occupancy":
                 telemetry_data = {
                     "occupancy": random.choice([True, False])
                 }
