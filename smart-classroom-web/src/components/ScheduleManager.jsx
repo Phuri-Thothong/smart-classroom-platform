@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Calendar } from 'lucide-react';
 
-export default function ScheduleManager({ roomsList = [], onAddClick }) {
+export default function ScheduleManager({ roomsList = [], onAddClick, refreshTrigger }) {
   const [schedules, setSchedules] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
   const activeRoom = selectedRoom || (roomsList.length > 0 ? roomsList[0].room_id : '');
@@ -17,7 +17,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick }) {
       }
     };
     fetchSchedules();
-  }, []);
+  }, [refreshTrigger]);
 
   const days = [
     { id: 2, name: 'Mon' }, { id: 3, name: 'Tue' }, { id: 4, name: 'Wed' },

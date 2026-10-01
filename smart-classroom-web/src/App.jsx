@@ -7,11 +7,12 @@ import AddRoomModal from './components/AddRoomModal';
 import DeviceSetupModal from './components/DeviceSetupModal';
 import ManageRoomsModal from './components/ManageRoomsModal';
 import ScheduleManager from './components/ScheduleManager';
+import AddClassModal from './components/AddClassModal';
 
 const API_BASE_URL = "http://localhost:8000";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => localStorage.getItem('smartclass_tab') || 'dashboard');
   const [devices, setDevices] = useState([]);
   const [roomsList, setRoomsList] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
@@ -26,6 +27,8 @@ export default function App() {
   const [isManageRoomsOpen, setIsManageRoomsOpen] = useState(false);
   const [isDeviceSetupOpen, setIsDeviceSetupOpen] = useState(false);
   const [setupDevice, setSetupDevice] = useState(null);
+  const [isAddClassOpen, setIsAddClassOpen] = useState(false);
+  const [scheduleRefreshCount, setScheduleRefreshCount] = useState(0);
 
   const uniqueRooms = useMemo(() => {
     return ['All', ...new Set(roomsList.map(r => r.room_id))];
@@ -128,6 +131,10 @@ export default function App() {
     return () => clearInterval(interval);
   }, [fetchTelemetry]);
 
+  useEffect(() => {
+    localStorage.setItem('smartclass_tab', activeTab);
+  }, [activeTab]);
+
   const handleSaveRoom = async (newRoom) => {
     try {
       const res = await fetch(`${API_BASE_URL}/rooms`, {
@@ -210,6 +217,22 @@ export default function App() {
     if (type.includes('air')) return <Wind size={18} />;
     if (type.includes('sensor') || type.includes('occupancy')) return <UserCheck size={18} />;
     return <Activity size={18} />;
+  };
+
+  const handleSaveClass = async (classData) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/schedules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(classData)
+      });
+      if (!res.ok) throw new Error("Failed to save class");
+      setIsAddClassOpen(false);
+      setScheduleRefreshCount(prev => prev + 1); // สั่งให้ ScheduleManager รีเฟรช
+    } catch (error) {
+      console.error("Save Class Error:", error);
+      alert("Error saving class schedule");
+    }
   };
 
   return (
@@ -440,9 +463,11 @@ export default function App() {
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="text-xl font-bold text-slate-800 mb-2">Automation & Schedules</h3>
                 <p className="text-slate-500 mb-6">Manage sensor conditions and timetables for automated device control.</p>
-                
-                <ScheduleManager roomsList={roomsList} />
-                
+                <ScheduleManager 
+                  roomsList={roomsList} 
+                  onAddClick={() => setIsAddClassOpen(true)} 
+                  refreshTrigger={scheduleRefreshCount} 
+                />
               </div>
             </div>
           ) : (
@@ -460,6 +485,12 @@ export default function App() {
         onClose={() => setIsDeviceSetupOpen(false)} 
         onSave={handleSaveDeviceConfig} 
         device={setupDevice} 
+        roomsList={roomsList} 
+      />
+      <AddClassModal 
+        isOpen={isAddClassOpen} 
+        onClose={() => setIsAddClassOpen(false)} 
+        onSave={handleSaveClass} 
         roomsList={roomsList} 
       />
     </div>
