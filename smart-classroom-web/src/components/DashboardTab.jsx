@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -14,9 +14,7 @@ export default function DashboardTab({
   const [selectedType, setSelectedType] = useState('All');
   const [timeRange, setTimeRange] = useState('20');
 
-  const uniqueRooms = useMemo(() => {
-    return ['All', ...new Set(roomsList.map(r => r.room_id))];
-  }, [roomsList]);
+  const uniqueRooms = useMemo(() => ['All', ...new Set(roomsList.map(r => r.room_id))], [roomsList]);
   
   const filteredDevices = useMemo(() => {
     return devices.filter(d => {
@@ -26,10 +24,12 @@ export default function DashboardTab({
     });
   }, [devices, selectedRoom, selectedType]);
 
+  const activeControllers = useMemo(() => {
+    return filteredDevices.filter(d => d.status !== 'pending' && (d.device_type === 'lighting' || d.device_type === 'air_control'));
+  }, [filteredDevices]);
+
   const graphNodes = useMemo(() => {
-    return filteredDevices.filter(d => 
-      d.status !== 'pending' && d.device_type === 'energy_node'
-    );
+    return filteredDevices.filter(d => d.status !== 'pending' && d.device_type === 'energy_node');
   }, [filteredDevices]);
 
   const activeGraphNode = useMemo(() => {
@@ -38,16 +38,10 @@ export default function DashboardTab({
     return isValid ? selectedGraphNode : graphNodes[0].node_id;
   }, [graphNodes, selectedGraphNode]);
 
-  const offlineNodes = useMemo(() => {
-    return filteredDevices.filter(d => d.status === 'offline').map(d => d.node_id);
-  }, [filteredDevices]);
-  const offlineCount = offlineNodes.length;
+  const offlineNodes = useMemo(() => filteredDevices.filter(d => d.status === 'offline').map(d => d.node_id), [filteredDevices]);
+  const offlineCount = offlineNodes.length; 
 
-  const offlineGateways = useMemo(() => {
-    return Object.entries(gatewayStatus)
-      .filter(([, status]) => status === 'offline')
-      .map(([id]) => id);
-  }, [gatewayStatus]);
+  const offlineGateways = useMemo(() => Object.entries(gatewayStatus).filter(([, status]) => status === 'offline').map(([id]) => id), [gatewayStatus]);
   const offlineGatewaysCount = offlineGateways.length;
 
   const fetchTelemetry = useCallback(() => {
@@ -85,11 +79,57 @@ export default function DashboardTab({
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      
+      {/* ---------------- QUICK CONTROLS SECTION ---------------- */}
+      {activeControllers.length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+          <div className="flex items-center gap-2 mb-4">
+            <div className="bg-blue-100 p-1.5 rounded-lg text-blue-600">
+              <Power size={18} />
+            </div>
+            <h3 className="text-lg font-semibold text-slate-800">Quick Controls</h3>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
+            {activeControllers.map(device => {
+              const isOn = deviceStatus[device.node_id] || false;
+              const isOffline = device.status === 'offline';
+              return (
+                <div key={`ctrl-${device.node_id}`} className={`border rounded-xl p-4 flex flex-col justify-between transition-colors ${isOn && !isOffline ? 'border-blue-300 bg-blue-50/50 shadow-sm' : 'border-slate-200 bg-slate-50'} ${isOffline ? 'opacity-60 grayscale' : ''}`}>
+                  <div className="flex justify-between items-start mb-3">
+                    <div className={`p-2 rounded-lg ${isOn && !isOffline ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-200 text-slate-500'}`}>
+                      {getDeviceIcon(device.device_type)}
+                    </div>
+                    <button 
+                      onClick={() => onToggleDevice(device.node_id, isOn)} disabled={isOffline}
+                      className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed' : ''}`}
+                    >
+                      <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
+                    </button>
+                  </div>
+                  <div>
+                    <p className="font-semibold text-slate-800 text-sm truncate">{device.device_name || device.node_id}</p>
+                    <div className="flex justify-between items-center mt-1">
+                      <p className="text-xs text-slate-500">{device.room_id || 'Unassigned'}</p>
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOn && !isOffline ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>
+                        {isOffline ? 'OFFLINE' : isOn ? 'ON' : 'OFF'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- DASHBOARD GRID ---------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        {/* NODE REGISTRY */}
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
           <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="flex items-center space-x-3">
-              <h3 className="text-lg font-semibold text-slate-800">Node Registry</h3>
+              <h3 className="text-lg font-semibold text-slate-800">Device Management</h3>
               <span className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full">Total: {filteredDevices.length}</span>
             </div>
             <div className="flex items-center space-x-2">
@@ -125,13 +165,13 @@ export default function DashboardTab({
           </div>
           
           <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse min-w-150">
               <thead>
                 <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wider">
-                  <th className="p-4 font-medium">Device</th>
+                  <th className="p-4 font-medium">Device Info</th>
                   <th className="p-4 font-medium">Type</th>
-                  <th className="p-4 font-medium">Status</th>
-                  <th className="p-4 font-medium text-right">Action</th>
+                  <th className="p-4 font-medium">Onboarding / Status</th>
+                  <th className="p-4 font-medium text-right">Manage</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -141,13 +181,10 @@ export default function DashboardTab({
                   filteredDevices.map(device => {
                     const isPending = device.status === 'pending';
                     const isOffline = device.status === 'offline';
-                    const isOn = deviceStatus[device.node_id] || false;
-                    const isController = device.device_type === 'lighting' || device.device_type === 'air_control';
-
-                    const iconBgColor = isPending ? 'bg-yellow-100 text-yellow-600' : isOffline ? 'bg-slate-100 text-slate-400' : 'bg-blue-100 text-blue-600';
-                    const badgeColor = isPending ? 'bg-yellow-50 text-yellow-700 border-yellow-200' : isOffline ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-green-50 text-green-700 border-green-200';
-                    const dotColor = isPending ? 'bg-yellow-500' : isOffline ? 'bg-slate-400' : 'bg-green-500';
-                    const statusText = isPending ? 'Pending' : isOffline ? 'Offline' : 'Active';
+                    
+                    const iconBgColor = isPending ? 'bg-amber-100 text-amber-600' : isOffline ? 'bg-slate-100 text-slate-400' : 'bg-blue-100 text-blue-600';
+                    const badgeColor = isOffline ? 'bg-slate-50 text-slate-500 border-slate-200' : 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                    const dotColor = isOffline ? 'bg-slate-400' : 'bg-emerald-500';
 
                     return (
                       <tr key={device.node_id} className={`hover:bg-slate-50 transition-colors ${isOffline ? 'opacity-70' : ''}`}>
@@ -163,48 +200,51 @@ export default function DashboardTab({
                                 {device.room_id ? (
                                   <><span className="mx-1">•</span><span className="font-medium text-slate-500">{device.room_id}</span></>
                                 ) : (
-                                  <><span className="mx-1">•</span><span className="italic text-yellow-600">Unassigned</span></>
+                                  <><span className="mx-1">•</span><span className="italic text-amber-600">Unassigned</span></>
                                 )}
                               </div>
                             </div>
                           </div>
                         </td>
                         <td className="p-4">
-                          <span className="px-2 py-1 bg-slate-100 text-slate-600 text-xs rounded uppercase">{device.device_type}</span>
+                          <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase tracking-wider">{device.device_type}</span>
                         </td>
                         <td className="p-4">
-                          <span className={`inline-flex items-center px-2 py-1 rounded text-xs font-medium border ${badgeColor}`}>
-                            <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotColor}`}></span>
-                            {statusText}
-                          </span>
+                          {isPending ? (
+                            <div className="flex items-center text-xs font-medium space-x-1.5 whitespace-nowrap">
+                              <div className="flex items-center text-blue-600" title="Metadata Received">
+                                <span className="w-4 h-4 bg-blue-100 rounded-full flex items-center justify-center mr-1 text-[10px]">1</span> Found
+                              </div>
+                              <ChevronRight size={14} className="text-slate-300" />
+                              <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 animate-pulse shadow-sm" title="Waiting for Admin Approval">
+                                <span className="w-4 h-4 bg-amber-200 rounded-full flex items-center justify-center mr-1 text-[10px] text-amber-800">2</span> Needs Config
+                              </div>
+                              <ChevronRight size={14} className="text-slate-300" />
+                              <div className="flex items-center text-slate-300">
+                                <span className="w-4 h-4 bg-slate-100 rounded-full flex items-center justify-center mr-1 text-[10px]">3</span> Ready
+                              </div>
+                            </div>
+                          ) : (
+                            <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border ${badgeColor}`}>
+                              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotColor}`}></span>
+                              {isOffline ? 'Offline' : 'Online & Active'}
+                            </span>
+                          )}
                         </td>
-                        <td className="p-4 text-right flex justify-end items-center h-full space-x-3">
+                        <td className="p-4 text-right flex justify-end items-center h-full">
                           {isPending ? (
                             <button onClick={() => onOpenDeviceSetup(device)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
-                              <CheckCircle size={14} className="mr-1" /> Approve
+                              <CheckCircle size={14} className="mr-1.5" /> Approve Setup
                             </button>
                           ) : (
-                            <>
-                              {isController ? (
-                                <button 
-                                  onClick={() => onToggleDevice(device.node_id, isOn)} disabled={isOffline}
-                                  className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed opacity-50' : ''}`}
-                                >
-                                  <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
-                                </button>
-                              ) : (
-                                <span className="text-xs text-slate-400 pr-2">View Only</span>
-                              )}
-                              
-                              <div className="flex border-l border-slate-200 pl-2 space-x-1">
-                                <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors" title="Settings">
-                                  <Settings size={16} />
-                                </button>
-                                <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete">
-                                  <Trash2 size={16} />
-                                </button>
-                              </div>
-                            </>
+                            <div className="flex space-x-1">
+                              <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors" title="Settings">
+                                <Settings size={16} />
+                              </button>
+                              <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete">
+                                <Trash2 size={16} />
+                              </button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -216,6 +256,7 @@ export default function DashboardTab({
           </div>
         </div>
 
+        {/* SYSTEM ALERTS */}
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
           <h3 className="text-lg font-semibold text-slate-800 mb-4">System Alerts</h3>
           <div className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-4 
@@ -250,6 +291,7 @@ export default function DashboardTab({
         </div>
       </div>
 
+      {/* ENERGY TRENDS */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
         <div className="flex justify-between items-center mb-6">
           <h3 className="text-lg font-semibold text-slate-800">Room Power Consumption (Energy Trends)</h3>
