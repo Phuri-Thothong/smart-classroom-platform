@@ -1,10 +1,11 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Calendar, Trash2, Edit3, X, AlertCircle } from 'lucide-react';
+import ConfirmModal from './ConfirmModal';
 
 export default function ScheduleManager({ roomsList = [], onAddClick, refreshTrigger }) {
   const [schedules, setSchedules] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
-  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [deleteConfirmData, setDeleteConfirmData] = useState(null);
   const [editScheduleData, setEditScheduleData] = useState(null);
   const [editError, setEditError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
@@ -15,9 +16,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
     try {
       const res = await fetch("http://localhost:8000/schedules");
       if (res.ok) setSchedules(await res.json());
-    } catch (error) {
-      console.error("Error fetching schedules:", error.message);
-    }
+    } catch (error) { console.error("Error:", error.message); }
   };
 
   useEffect(() => {
@@ -26,31 +25,26 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
       .then(res => res.json())
       .then(data => { if (isMounted) setSchedules(data); })
       .catch(err => console.error(err.message));
-      
     return () => { isMounted = false; };
   }, [refreshTrigger]);
 
   const executeDelete = async () => {
-    if (!deleteConfirmId) return;
+    if (!deleteConfirmData) return;
     try {
-      const res = await fetch(`http://localhost:8000/schedules/${deleteConfirmId}`, { method: 'DELETE' });
+      const res = await fetch(`http://localhost:8000/schedules/${deleteConfirmData.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Failed to delete from database");
-      setDeleteConfirmId(null);
+      setDeleteConfirmData(null);
       fetchSchedules(); 
-    } catch (error) {
-      alert(`Error deleting class: ${error.message}`);
-    }
+    } catch (error) { alert(`Error deleting class: ${error.message}`); }
   };
 
   const handleUpdateSchedule = async (e) => {
     e.preventDefault();
     setEditError('');
-    
     if (editScheduleData.start_time >= editScheduleData.end_time) {
       setEditError('End time must be after start time.');
       return;
     }
-
     setIsSaving(true);
     const submitData = {
       room_id: editScheduleData.room_id,
@@ -60,27 +54,21 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
       subject_code: editScheduleData.subject_code,
       subject_name: editScheduleData.subject_name
     };
-
     try {
       const res = await fetch(`http://localhost:8000/schedules/${editScheduleData.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(submitData)
       });
-      
       if (!res.ok) {
         const errData = await res.json();
         const errMsg = Array.isArray(errData.detail) ? errData.detail[0] : errData.detail;
         throw new Error(errMsg || 'Failed to update schedule');
       }
-      
       setEditScheduleData(null);
       fetchSchedules();
-    } catch (error) {
-      setEditError(error.message);
-    } finally {
-      setIsSaving(false);
-    }
+    } catch (error) { setEditError(error.message); } 
+    finally { setIsSaving(false); }
   };
 
   const days = [
@@ -97,10 +85,8 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
     };
     const s = timeToFloat(start);
     const e = timeToFloat(end);
-    
     const leftPercent = Math.max(0, ((s - 8) / 10) * 100);
     const widthPercent = ((e - s) / 10) * 100;
-    
     return { left: `${leftPercent}%`, width: `${widthPercent}%` };
   };
 
@@ -125,32 +111,25 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
     return palette[index % palette.length];
   };
 
-  const formatTimeForInput = (timeStr) => {
-    return timeStr ? timeStr.substring(0, 5) : '';
+  const formatTimeForInput = (timeStr) => timeStr ? timeStr.substring(0, 5) : '';
+  const getDeleteMessage = () => {
+    if (!deleteConfirmData) return '';
+    const dayObj = days.find(d => d.id === deleteConfirmData.day_of_week);
+    const dayName = dayObj ? dayObj.name : '';
+    const timeStr = `${formatTimeForInput(deleteConfirmData.start_time)} - ${formatTimeForInput(deleteConfirmData.end_time)}`;
+    return `Are you sure you want to remove this class?\n\nSubject: ${deleteConfirmData.subject_code}\nDay: ${dayName}\nTime: ${timeStr}`;
   };
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mt-6 relative">
 
-      {deleteConfirmId && (
-        <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex items-center justify-center rounded-xl">
-          <div className="bg-white border border-slate-200 shadow-xl rounded-xl p-6 max-w-sm w-full text-center">
-            <div className="mx-auto w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
-              <Trash2 size={24} />
-            </div>
-            <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Class Schedule?</h3>
-            <p className="text-sm text-slate-500 mb-6">This action cannot be undone. Are you sure you want to remove this class?</p>
-            <div className="flex gap-3 justify-center">
-              <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
-                Cancel
-              </button>
-              <button onClick={executeDelete} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors">
-                Yes, Delete
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmModal 
+        isOpen={!!deleteConfirmData}
+        title="Delete Class Schedule?"
+        message={getDeleteMessage()}
+        onConfirm={executeDelete}
+        onCancel={() => setDeleteConfirmData(null)}
+      />
 
       {editScheduleData && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
@@ -322,7 +301,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            setDeleteConfirmId(cls.id);
+                            setDeleteConfirmData(cls);
                           }}
                           className="text-white hover:text-red-200 p-0.5 rounded transition-colors"
                           title="Delete Class"

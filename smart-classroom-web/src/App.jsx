@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import Sidebar from './components/Sidebar';
+import ConfirmModal from './components/ConfirmModal';
 import AddRoomModal from './components/AddRoomModal';
 import DeviceSetupModal from './components/DeviceSetupModal';
 import ManageRoomsModal from './components/ManageRoomsModal';
@@ -19,6 +20,9 @@ export default function App() {
   // States สำหรับ Dashboard
   const [deviceStatus, setDeviceStatus] = useState({});
   const [gatewayStatus, setGatewayStatus] = useState({});
+  const [globalConfirm, setGlobalConfirm] = useState({
+    isOpen: false, title: '', message: '', onConfirm: null
+  });
   
   // States สำหรับ Modals
   const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
@@ -37,14 +41,14 @@ export default function App() {
     fetch(`${API_BASE_URL}/rooms`)
       .then(res => res.json())
       .then(data => setRoomsList(data))
-      .catch(err => console.error("Rooms Fetch Error:", err));
+      .catch(err => console.error("Rooms Fetch Error:", err.message));
   }, []);
 
   const fetchGateways = useCallback(() => {
     fetch(`${API_BASE_URL}/gateways/status`)
       .then(res => res.json())
       .then(data => setGatewayStatus(data))
-      .catch(err => console.error("Gateway Fetch Error:", err));
+      .catch(err => console.error("Gateway Fetch Error:", err.message));
   }, []);
 
   const fetchDevices = useCallback(() => {
@@ -58,7 +62,7 @@ export default function App() {
         setIsBackendOnline(true);
       })
       .catch(err => {
-        console.error("Fetch Error:", err);
+        console.error("Fetch Error:", err.message);
         setIsBackendOnline(false);
       });
   }, []);
@@ -91,17 +95,28 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to create room");
       setIsAddRoomOpen(false);
       fetchRooms();
-    } catch { alert("Error saving room"); }
+    } catch (error) { 
+      alert(`Error saving room: ${error.message}`); 
+    }
   };
 
-  const handleDeleteRoom = async (roomId) => {
-    if (!window.confirm(`Are you sure you want to delete room ${roomId}? Devices will be unassigned.`)) return;
-    try {
-      const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error("Failed to delete room");
-      fetchRooms();
-      fetchDevices(); 
-    } catch { alert("Error deleting room"); }
+  const handleDeleteRoom = (roomId) => {
+    setGlobalConfirm({
+      isOpen: true,
+      title: 'Delete Room?',
+      message: `Are you sure you want to delete room ${roomId}?\nAll assigned devices will become unassigned.`,
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error("Failed to delete room");
+          fetchRooms();
+          fetchDevices(); 
+        } catch (error) { 
+          alert(`Error deleting room: ${error.message}`); 
+        }
+        finally { setGlobalConfirm({ isOpen: false }); }
+      }
+    });
   };
 
   const handleSaveDeviceConfig = async (configData, isNewApproval) => {
@@ -115,7 +130,9 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to save configuration");
       setIsDeviceSetupOpen(false);
       fetchDevices();
-    } catch { alert("Error saving device configuration"); }
+    } catch (error) { 
+      alert(`Error saving device configuration: ${error.message}`); 
+    }
   };
 
   const toggleDevice = async (id, currentStatus) => {
@@ -129,18 +146,28 @@ export default function App() {
         body: JSON.stringify({ action })
       });
       if (!res.ok) throw new Error("API error");
-    } catch {
+    } catch (error) {
+      console.error(`Control Error for ${id}:`, error.message);
       setDeviceStatus(prev => ({ ...prev, [id]: currentStatus }));
     }
   };
 
-  const deleteDevice = async (deviceId) => {
-    if (!window.confirm(`Are you sure you want to delete device: ${deviceId}?`)) return;
-    try {
-      const res = await fetch(`${API_BASE_URL}/devices/${deviceId}`, { method: 'DELETE' });
-      if (!res.ok) throw new Error("Failed to delete device");
-      fetchDevices();
-    } catch { alert("Failed to delete device."); }
+  const deleteDevice = (deviceId) => {
+    setGlobalConfirm({
+      isOpen: true,
+      title: 'Delete Node?',
+      message: `Are you sure you want to permanently delete node:\n${deviceId}?`,
+      onConfirm: async () => {
+        try {
+          const res = await fetch(`${API_BASE_URL}/devices/${deviceId}`, { method: 'DELETE' });
+          if (!res.ok) throw new Error("Failed to delete device");
+          fetchDevices();
+        } catch (error) { 
+          alert(`Failed to delete device: ${error.message}`); 
+        }
+        finally { setGlobalConfirm({ isOpen: false }); }
+      }
+    });
   };
 
   const handleSaveClass = () => {
@@ -208,6 +235,13 @@ export default function App() {
         onClose={() => setIsAddClassOpen(false)} 
         onSave={handleSaveClass} 
         roomsList={roomsList} 
+      />
+      <ConfirmModal 
+        isOpen={globalConfirm.isOpen}
+        title={globalConfirm.title}
+        message={globalConfirm.message}
+        onConfirm={globalConfirm.onConfirm}
+        onCancel={() => setGlobalConfirm({ isOpen: false })}
       />
     </div>
   );
