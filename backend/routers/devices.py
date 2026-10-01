@@ -45,17 +45,20 @@ def get_device_api(device_id: str, db: Session = Depends(get_db)):
 def approve_device_api(device_id: str, config: DeviceConfig, db: Session = Depends(get_db)):
     node = db.query(Node).filter(Node.node_id == device_id).first()
     if not node: raise HTTPException(status_code=404, detail="Device not found")
-    
     node.status = "approved"
     if config.device_name: node.device_name = config.device_name
     if config.room_id: node.room_id = config.room_id
-    
     caps = node.capabilities if isinstance(node.capabilities, dict) else {}
     caps.update({"sampling_interval": config.sampling_interval, "telemetry_interval": config.telemetry_interval})
     node.capabilities = caps 
     db.commit()
-    
-    config_data = {"device_id": device_id, "config_version": 1, **caps, "enabled": config.enabled}
+    config_data = {
+        "device_id": device_id, 
+        "config_version": 1, 
+        **caps, 
+        "enabled": config.enabled,
+        "gpio_config": config.gpio_config
+    }
     if mqtt_shared.mqtt_client: 
         mqtt_shared.mqtt_client.publish(mqtt_shared.MQTT_CONFIG_TOPIC.format(device_id), json.dumps({"type": "config", "payload": config_data}))
     return {"device": node, "configuration": config_data}

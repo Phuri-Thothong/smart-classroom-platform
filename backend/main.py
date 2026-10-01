@@ -94,11 +94,27 @@ def on_message(client, userdata, msg):
                 sensor_values = data.get("data", {})
                 for rule in active_rules:
                     if rule.sensor_key in sensor_values:
+                        val = sensor_values[rule.sensor_key]
+                        thres = rule.condition_value
+                        trigger = False
+                        
                         try:
-                            val, thres = float(sensor_values[rule.sensor_key]), rule.condition_value
-                            if (rule.condition_operator == ">" and val > thres) or (rule.condition_operator == "<" and val < thres) or (rule.condition_operator == "==" and val == thres) or (rule.condition_operator == "!=" and val != thres):
-                                client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}}))
-                        except ValueError: pass
+                            if rule.condition_operator == "==" and str(val).upper() == str(thres).upper():
+                                trigger = True
+                            elif rule.condition_operator != "==":
+                                val_f = float(val)
+                                thres_f = float(thres)
+                                if rule.condition_operator == ">" and val_f > thres_f: trigger = True
+                                elif rule.condition_operator == "<" and val_f < thres_f: trigger = True
+                                elif rule.condition_operator == "!=" and val_f != thres_f: trigger = True
+                        except ValueError:
+                            pass
+                        if trigger:
+                            client.publish(
+                                mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), 
+                                json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}})
+                            )
+                            print(f"[Rule Engine] Triggered: {device_id} -> {rule.target_node_id} ({rule.action})")
         finally:
             db.close() 
     except Exception as e: pass
