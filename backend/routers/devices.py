@@ -10,7 +10,7 @@ import mqtt_shared
 
 router = APIRouter(prefix="/devices", tags=["Devices"])
 
-@router.get("/")
+@router.get("")
 def get_devices(db: Session = Depends(get_db)):
     nodes = db.query(Node).all()
     result, current_time = [], datetime.utcnow()

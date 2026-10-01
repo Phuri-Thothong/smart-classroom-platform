@@ -6,11 +6,11 @@ from schemas import RoomCreate
 
 router = APIRouter(prefix="/rooms", tags=["Rooms"])
 
-@router.get("/")
+@router.get("")
 def get_rooms(db: Session = Depends(get_db)):
     return db.query(Room).all()
 
-@router.post("/")
+@router.post("")
 def create_room(room: RoomCreate, db: Session = Depends(get_db)):
     if db.query(Room).filter(Room.room_id == room.room_id).first():
         raise HTTPException(status_code=400, detail="Room ID already exists")
