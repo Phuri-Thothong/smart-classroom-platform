@@ -439,9 +439,9 @@ export default function App() {
             <div className="max-w-7xl mx-auto space-y-6">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="text-xl font-bold text-slate-800 mb-2">Automation & Schedules</h3>
-                <p className="text-slate-500 mb-6">จัดการเงื่อนไขเซนเซอร์และตารางเวลาสำหรับสั่งการอุปกรณ์อัตโนมัติภายในห้องเรียน</p>
-        
-                <ScheduleManager />
+                <p className="text-slate-500 mb-6">Manage sensor conditions and timetables for automated device control.</p>
+                
+                <ScheduleManager roomsList={roomsList} />
                 
               </div>
             </div>

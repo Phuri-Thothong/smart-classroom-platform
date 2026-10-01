@@ -1,7 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { Calendar } from 'lucide-react';
 
-export default function ScheduleManager() {
+export default function ScheduleManager({ roomsList = [] }) {
   const [schedules, setSchedules] = useState([]);
+  const [selectedRoom, setSelectedRoom] = useState('');
+  const activeRoom = selectedRoom || (roomsList.length > 0 ? roomsList[0].room_id : '');
 
   useEffect(() => {
     const fetchSchedules = async () => {
@@ -13,18 +16,16 @@ export default function ScheduleManager() {
         console.error("Error fetching schedules", error);
       }
     };
-
     fetchSchedules();
   }, []);
 
   const days = [
-    { id: 2, name: 'จันทร์' }, { id: 3, name: 'อังคาร' }, { id: 4, name: 'พุธ' },
-    { id: 5, name: 'พฤหัสบดี' }, { id: 6, name: 'ศุกร์' }, { id: 7, name: 'เสาร์' }, { id: 1, name: 'อาทิตย์' }
+    { id: 2, name: 'Mon' }, { id: 3, name: 'Tue' }, { id: 4, name: 'Wed' },
+    { id: 5, name: 'Thu' }, { id: 6, name: 'Fri' }, { id: 7, name: 'Sat' }, { id: 1, name: 'Sun' }
   ];
   
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
-  // ฟังก์ชันคำนวณตำแหน่งซ้าย (left %) และความกว้าง (width %) จากเวลา
   const calculatePosition = (start, end) => {
     const timeToFloat = (timeStr) => {
       const [h, m] = timeStr.split(':').map(Number);
@@ -33,36 +34,53 @@ export default function ScheduleManager() {
     const s = timeToFloat(start);
     const e = timeToFloat(end);
     
-    // แกนเวลาเริ่มที่ 8.00 (ทั้งหมด 10 ชั่วโมง)
     const leftPercent = Math.max(0, ((s - 8) / 10) * 100);
     const widthPercent = ((e - s) / 10) * 100;
     
     return { left: `${leftPercent}%`, width: `${widthPercent}%` };
   };
 
-  // ชุดสีสำหรับบล็อกวิชา (สุ่มหรือกำหนดตายตัว)
   const colors = ["bg-blue-600", "bg-purple-700", "bg-emerald-600", "bg-rose-600", "bg-amber-600"];
 
+  const roomSchedules = useMemo(() => {
+    return schedules.filter(s => s.room_id === activeRoom);
+  }, [schedules, activeRoom]);
+
   return (
-    <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 mt-6">
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mt-6">
       <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold text-gray-800 flex items-center gap-2">
-          <span className="bg-blue-600 p-2 rounded-md text-white shadow-sm">📅</span>
-          มุมมองตารางเรียน (Room R201)
-        </h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
+            <div className="bg-blue-600 p-1.5 rounded-lg text-white shadow-sm">
+              <Calendar size={20} />
+            </div>
+            Timetable View
+          </h2>
+          <select
+            value={activeRoom}
+            onChange={(e) => setSelectedRoom(e.target.value)}
+            className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-2 outline-none font-medium"
+          >
+            {roomsList.length === 0 && <option value="">No rooms available</option>}
+            {roomsList.map(r => (
+              <option key={r.room_id} value={r.room_id}>Room {r.room_name || r.room_id}</option>
+            ))}
+          </select>
+        </div>
         <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm transition-colors">
-          + เพิ่มวิชาใหม่
+          + Add Class
         </button>
       </div>
 
-      <div className="border border-gray-200 rounded-md overflow-hidden bg-gray-50">
-        {/* Header แถบเวลา 08:00 - 18:00 */}
-        <div className="flex pl-24 border-b border-gray-200 bg-white">
+      <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+        <div className="flex pl-24 border-b border-slate-200 bg-white">
           <div className="relative w-full h-10">
             {hours.map((hour, i) => (
               <div 
                 key={hour} 
-                className="absolute text-xs text-gray-500 font-medium -translate-x-1/2 bottom-2"
+                className={`absolute text-xs text-slate-500 font-medium bottom-2 ${
+                  i === 0 ? 'translate-x-0' : i === hours.length - 1 ? '-translate-x-full' : '-translate-x-1/2'
+                }`}
                 style={{ left: `${(i / 10) * 100}%` }}
               >
                 {hour.toString().padStart(2, '0')}:00
@@ -71,23 +89,20 @@ export default function ScheduleManager() {
           </div>
         </div>
 
-        {/* แถวของแต่ละวัน */}
         {days.map((day) => {
-          const dayClasses = schedules.filter(s => s.day_of_week === day.id);
+          const dayClasses = roomSchedules.filter(s => s.day_of_week === day.id);
           
           return (
-            <div key={day.id} className="flex border-b border-gray-200 last:border-b-0 min-h-[60px] bg-white group hover:bg-gray-50 transition-colors">
-              <div className="w-24 shrink-0 flex items-center justify-center border-r border-gray-200 font-medium text-gray-700">
+            <div key={day.id} className="flex border-b border-slate-200 last:border-b-0 min-h-15 bg-white group hover:bg-slate-50 transition-colors">
+              <div className="w-24 shrink-0 flex items-center justify-center border-r border-slate-200 font-medium text-slate-700 text-sm">
                 {day.name}
               </div>
               
               <div className="relative w-full py-2">
-                {/* เส้นประไกด์ไลน์รายชั่วโมง */}
                 {hours.map((_, i) => (
-                  <div key={i} className="absolute top-0 bottom-0 border-l border-dashed border-gray-200" style={{ left: `${(i / 10) * 100}%` }} />
+                  <div key={i} className="absolute top-0 bottom-0 border-l border-dashed border-slate-200" style={{ left: `${(i / 10) * 100}%` }} />
                 ))}
 
-                {/* บล็อกวิชาเรียน */}
                 {dayClasses.map((cls, idx) => {
                   const style = calculatePosition(cls.start_time, cls.end_time);
                   const colorClass = colors[(cls.id || idx) % colors.length];
@@ -95,7 +110,7 @@ export default function ScheduleManager() {
                   return (
                     <div 
                       key={cls.id} 
-                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs overflow-hidden ${colorClass} hover:ring-2 hover:ring-offset-1 hover:ring-gray-300 transition-all cursor-pointer`}
+                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs overflow-hidden ${colorClass} hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all cursor-pointer`}
                       style={{ left: style.left, width: style.width }}
                       title={`${cls.start_time.substring(0,5)} - ${cls.end_time.substring(0,5)}\n${cls.subject_code} ${cls.subject_name}`}
                     >
