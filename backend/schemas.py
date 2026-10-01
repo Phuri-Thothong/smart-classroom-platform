@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict, Any
 
 class RoomCreate(BaseModel):
     room_id: str
@@ -11,6 +11,7 @@ class DeviceConfig(BaseModel):
     sampling_interval: int = 5
     telemetry_interval: int = 10
     enabled: bool = True
+    gpio_config: Optional[Dict[str, int]] = {}
 
 class RuleCreate(BaseModel):
     name: str

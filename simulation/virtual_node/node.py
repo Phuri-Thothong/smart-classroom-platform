@@ -40,12 +40,14 @@ def run_node(device_id, device_type, node_port, gateway_port):
                     payload = msg.get("payload", {})
                     if isinstance(payload, str):
                         payload = json.loads(payload)
-                        
                     print(f"\n[Node] SUCCESS! Received Configuration")
                     if "telemetry_interval" in payload:
                         state["telemetry_interval"] = int(payload["telemetry_interval"])
-                    
+                    if "gpio_config" in payload:
+                        state["gpio_config"] = payload["gpio_config"]
+                        print(f"[Node] Applied GPIO Pins: {state['gpio_config']}")
                     state["is_configured"] = True
+                    
                     with open(eeprom_file, 'w') as f:
                         json.dump(state, f)
 
