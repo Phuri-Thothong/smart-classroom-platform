@@ -18,7 +18,7 @@ class RuleCreate(BaseModel):
     sensor_node_id: str
     sensor_key: str
     condition_operator: str
-    condition_value: float
+    condition_value: str 
     target_node_id: str
     action: str
 

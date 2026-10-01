@@ -34,15 +34,14 @@ class Telemetry(Base):
 # ==========================================
 class AutomationRule(Base):
     __tablename__ = "automation_rules"
-    
-    rule_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    name = Column(String, nullable=False)
-    sensor_node_id = Column(String, ForeignKey("nodes.node_id", ondelete="CASCADE"), nullable=False)
-    sensor_key = Column(String, nullable=False)
-    condition_operator = Column(String, nullable=False)
-    condition_value = Column(Float, nullable=False)
-    target_node_id = Column(String, ForeignKey("nodes.node_id", ondelete="CASCADE"), nullable=False)
-    action = Column(String, nullable=False)
+    rule_id = Column(Integer, primary_key=True, index=True)
+    name = Column(String)
+    sensor_node_id = Column(String)
+    sensor_key = Column(String)
+    condition_operator = Column(String)
+    condition_value = Column(String) 
+    target_node_id = Column(String)
+    action = Column(String)
     is_active = Column(Boolean, default=True)
 
 class ClassSchedule(Base):

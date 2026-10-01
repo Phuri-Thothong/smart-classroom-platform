@@ -65,21 +65,33 @@ export default function RuleManager({ devices }) {
 
   const handleSaveRule = async (e) => {
     e.preventDefault();
-    try {
-      let finalValue = formData.condition_value;
-      if (!isBooleanKey) {
-        finalValue = parseFloat(formData.condition_value);
-      }
+    
+    // เช็กค่าก่อนส่งว่าครบถ้วนไหม
+    const payloadData = {
+      name: formData.name,
+      sensor_node_id: formData.sensor_node_id,
+      sensor_key: formData.sensor_key || (formData.sensor_node_id.includes('occupancy') ? 'occupancy' : 'power_usage_watts'),
+      condition_operator: formData.condition_operator,
+      condition_value: String(formData.condition_value),
+      target_node_id: formData.target_node_id,
+      action: formData.action
+    };
 
+    console.log("Submitting Rule Payload:", payloadData); // เช็กค่าใน F12 Console
+
+    try {
       const res = await fetch(`${API_BASE_URL}/rules`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...formData,
-          condition_value: finalValue
-        })
+        body: JSON.stringify(payloadData)
       });
-      if (!res.ok) throw new Error("Failed to save rule into database");
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Backend Validation Error:", errorData);
+        throw new Error(errorData.detail ? JSON.stringify(errorData.detail) : "Failed to save rule into database");
+      }
+
       setIsAdding(false);
       setFormData({ name: '', sensor_node_id: '', sensor_key: '', condition_operator: '>', condition_value: '', target_node_id: '', action: 'ON' });
       fetchRules();
