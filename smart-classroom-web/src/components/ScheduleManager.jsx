@@ -40,18 +40,27 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
     return { left: `${leftPercent}%`, width: `${widthPercent}%` };
   };
 
-  const colors = [
-    "bg-slate-500", 
-    "bg-indigo-400", 
-    "bg-teal-500", 
-    "bg-rose-400", 
-    "bg-sky-500",
-    "bg-violet-400"
+  const palette = [
+    "bg-blue-600", "bg-emerald-600", "bg-rose-600", "bg-purple-600", 
+    "bg-amber-600", "bg-cyan-600", "bg-indigo-600", "bg-pink-600",
+    "bg-teal-600", "bg-fuchsia-600", "bg-orange-600", "bg-lime-600",
+    "bg-sky-600", "bg-violet-600", "bg-red-600", "bg-green-600"
   ];
 
   const roomSchedules = useMemo(() => {
     return schedules.filter(s => s.room_id === activeRoom);
   }, [schedules, activeRoom]);
+
+  const uniqueSubjects = useMemo(() => {
+    const codes = roomSchedules.map(s => s.subject_code);
+    return [...new Set(codes)].sort();
+  }, [roomSchedules]);
+
+  const getSubjectColor = (code) => {
+    const index = uniqueSubjects.indexOf(code);
+    if (index === -1) return palette[0];
+    return palette[index % palette.length];
+  };
 
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mt-6">
@@ -113,9 +122,9 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                   <div key={i} className="absolute top-0 bottom-0 border-l border-dashed border-slate-200" style={{ left: `${(i / 10) * 100}%` }} />
                 ))}
 
-                {dayClasses.map((cls, idx) => {
+                {dayClasses.map((cls) => {
                   const style = calculatePosition(cls.start_time, cls.end_time);
-                  const colorClass = colors[(cls.id || idx) % colors.length];
+                  const colorClass = getSubjectColor(cls.subject_code);
                   
                   return (
                     <div 

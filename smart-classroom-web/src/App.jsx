@@ -5,6 +5,7 @@ import DeviceSetupModal from './components/DeviceSetupModal';
 import ManageRoomsModal from './components/ManageRoomsModal';
 import ScheduleManager from './components/ScheduleManager';
 import AddClassModal from './components/AddClassModal';
+import RuleManager from './components/RuleManager';
 import DashboardTab from './components/DashboardTab';
 
 const API_BASE_URL = "http://localhost:8000";
@@ -182,6 +183,7 @@ export default function App() {
                   onAddClick={() => setIsAddClassOpen(true)} 
                   refreshTrigger={scheduleRefreshCount} 
                 />
+                <RuleManager devices={devices} />
               </div>
             </div>
           ) : (
