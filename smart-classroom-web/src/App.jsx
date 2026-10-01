@@ -219,20 +219,9 @@ export default function App() {
     return <Activity size={18} />;
   };
 
-  const handleSaveClass = async (classData) => {
-    try {
-      const res = await fetch(`${API_BASE_URL}/schedules`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(classData)
-      });
-      if (!res.ok) throw new Error("Failed to save class");
-      setIsAddClassOpen(false);
-      setScheduleRefreshCount(prev => prev + 1); // สั่งให้ ScheduleManager รีเฟรช
-    } catch (error) {
-      console.error("Save Class Error:", error);
-      alert("Error saving class schedule");
-    }
+  const handleSaveClass = () => {
+    setIsAddClassOpen(false);
+    setScheduleRefreshCount(prev => prev + 1);
   };
 
   return (
