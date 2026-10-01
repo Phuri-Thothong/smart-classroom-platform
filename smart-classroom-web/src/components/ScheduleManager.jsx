@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Calendar } from 'lucide-react';
 
-export default function ScheduleManager({ roomsList = [] }) {
+export default function ScheduleManager({ roomsList = [], onAddClick }) {
   const [schedules, setSchedules] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
   const activeRoom = selectedRoom || (roomsList.length > 0 ? roomsList[0].room_id : '');
@@ -40,7 +40,14 @@ export default function ScheduleManager({ roomsList = [] }) {
     return { left: `${leftPercent}%`, width: `${widthPercent}%` };
   };
 
-  const colors = ["bg-blue-600", "bg-purple-700", "bg-emerald-600", "bg-rose-600", "bg-amber-600"];
+  const colors = [
+    "bg-slate-500", 
+    "bg-indigo-400", 
+    "bg-teal-500", 
+    "bg-rose-400", 
+    "bg-sky-500",
+    "bg-violet-400"
+  ];
 
   const roomSchedules = useMemo(() => {
     return schedules.filter(s => s.room_id === activeRoom);
@@ -67,7 +74,10 @@ export default function ScheduleManager({ roomsList = [] }) {
             ))}
           </select>
         </div>
-        <button className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm transition-colors">
+        <button 
+          onClick={onAddClick}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm transition-colors"
+        >
           + Add Class
         </button>
       </div>
