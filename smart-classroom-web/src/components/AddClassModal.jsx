@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { X, AlertCircle, Plus, Trash2 } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
   const [roomId, setRoomId] = useState('');
   const [subjectCode, setSubjectCode] = useState('');
@@ -73,7 +75,7 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
       };
 
       try {
-        const res = await fetch("http://localhost:8000/schedules", {
+        const res = await fetch(`${API_BASE_URL}/schedules`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(submitData)

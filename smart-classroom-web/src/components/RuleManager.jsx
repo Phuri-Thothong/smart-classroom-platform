@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
 import { Settings, Trash2, Power, Plus, Activity, X } from 'lucide-react';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 export default function RuleManager({ devices }) {
   const [rules, setRules] = useState([]);
   const [isAdding, setIsAdding] = useState(false);
@@ -12,7 +14,7 @@ export default function RuleManager({ devices }) {
 
   const fetchRules = async () => {
     try {
-      const res = await fetch("http://localhost:8000/rules");
+      const res = await fetch("${API_BASE_URL}/rules");
       if (res.ok) setRules(await res.json());
     } catch (error) { 
       console.error("Error fetching rules:", error.message); 
@@ -21,7 +23,7 @@ export default function RuleManager({ devices }) {
 
   useEffect(() => { 
     let isMounted = true;
-    fetch("http://localhost:8000/rules")
+    fetch("${API_BASE_URL}/rules")
       .then(res => res.json())
       .then(data => { if (isMounted) setRules(data); })
       .catch(err => console.error("Error:", err.message));
@@ -37,7 +39,7 @@ export default function RuleManager({ devices }) {
 
   const toggleRule = async (ruleId) => {
     try {
-      const res = await fetch(`http://localhost:8000/rules/${ruleId}/toggle`, { method: 'PUT' });
+      const res = await fetch(`${API_BASE_URL}/rules/${ruleId}/toggle`, { method: 'PUT' });
       if (!res.ok) throw new Error("API returned an error");
       fetchRules();
     } catch (error) { 
@@ -48,7 +50,7 @@ export default function RuleManager({ devices }) {
   const deleteRule = async (ruleId) => {
     if (!window.confirm("Delete this automation rule?")) return;
     try {
-      const res = await fetch(`http://localhost:8000/rules/${ruleId}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/rules/${ruleId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("API returned an error");
       fetchRules();
     } catch (error) { 
@@ -64,7 +66,7 @@ export default function RuleManager({ devices }) {
         finalValue = parseFloat(formData.condition_value);
       }
 
-      const res = await fetch("http://localhost:8000/rules", {
+      const res = await fetch("${API_BASE_URL}/rules", {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

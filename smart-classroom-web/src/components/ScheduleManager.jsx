@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react';
 import { Calendar, Trash2, Edit3, X, AlertCircle } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
 
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+
 export default function ScheduleManager({ roomsList = [], onAddClick, refreshTrigger }) {
   const [schedules, setSchedules] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
@@ -14,14 +16,14 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
 
   const fetchSchedules = async () => {
     try {
-      const res = await fetch("http://localhost:8000/schedules");
+      const res = await fetch(`${API_BASE_URL}/schedules`);
       if (res.ok) setSchedules(await res.json());
     } catch (error) { console.error("Error:", error.message); }
   };
 
   useEffect(() => {
     let isMounted = true;
-    fetch("http://localhost:8000/schedules")
+    fetch(`${API_BASE_URL}/schedules`)
       .then(res => res.json())
       .then(data => { if (isMounted) setSchedules(data); })
       .catch(err => console.error(err.message));
@@ -31,7 +33,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
   const executeDelete = async () => {
     if (!deleteConfirmData) return;
     try {
-      const res = await fetch(`http://localhost:8000/schedules/${deleteConfirmData.id}`, { method: 'DELETE' });
+      const res = await fetch(`${API_BASE_URL}/schedules/${deleteConfirmData.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Failed to delete from database");
       setDeleteConfirmData(null);
       fetchSchedules(); 
@@ -55,7 +57,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
       subject_name: editScheduleData.subject_name
     };
     try {
-      const res = await fetch(`http://localhost:8000/schedules/${editScheduleData.id}`, {
+      const res = await fetch(`${API_BASE_URL}/schedules/${editScheduleData.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(submitData)
@@ -259,7 +261,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
           const dayClasses = roomSchedules.filter(s => s.day_of_week === day.id);
           
           return (
-            <div key={day.id} className="flex border-b border-slate-200 last:border-b-0 min-h-[60px] bg-white group/row hover:bg-slate-50 transition-colors">
+            <div key={day.id} className="flex border-b border-slate-200 last:border-b-0 min-h-15 bg-white group/row hover:bg-slate-50 transition-colors">
               <div className="w-24 shrink-0 flex items-center justify-center border-r border-slate-200 font-medium text-slate-700 text-sm">
                 {day.name}
               </div>

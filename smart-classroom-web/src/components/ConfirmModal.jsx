@@ -4,7 +4,7 @@ export default function ConfirmModal({ isOpen, title, message, onConfirm, onCanc
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-[100]">
+    <div className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center z-100">
       <div className="bg-white border border-slate-200 shadow-xl rounded-xl p-6 max-w-sm w-full text-center mx-4 animate-in fade-in zoom-in duration-200">
         <div className={`mx-auto w-12 h-12 rounded-full flex items-center justify-center mb-4 ${type === 'danger' ? 'bg-red-100 text-red-600' : 'bg-orange-100 text-orange-600'}`}>
           {type === 'danger' ? <Trash2 size={24} /> : <AlertTriangle size={24} />}

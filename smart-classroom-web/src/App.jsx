@@ -9,7 +9,7 @@ import AddClassModal from './components/AddClassModal';
 import RuleManager from './components/RuleManager';
 import DashboardTab from './components/DashboardTab';
 
-const API_BASE_URL = "http://localhost:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('smartclass_tab') || 'dashboard');
