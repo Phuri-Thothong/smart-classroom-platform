@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import { Settings, Trash2, Power, Plus, Activity, X } from 'lucide-react';
 
 export default function RuleManager({ devices }) {
@@ -10,35 +10,28 @@ export default function RuleManager({ devices }) {
     target_node_id: '', action: 'ON'
   });
 
-  const fetchRules = useCallback(async () => {
+  const fetchRules = async () => {
     try {
       const res = await fetch("http://localhost:8000/rules");
-      if (res.ok) {
-        const data = await res.json();
-        setRules(data);
-      }
+      if (res.ok) setRules(await res.json());
     } catch (error) { 
       console.error("Error fetching rules:", error.message); 
     }
-  }, []);
+  };
 
   useEffect(() => { 
-    const loadInitialRules = async () => {
-      try {
-        const res = await fetch("http://localhost:8000/rules");
-        if (res.ok) {
-          const data = await res.json();
-          setRules(data);
-        }
-      } catch (error) {
-        console.error("Error fetching rules:", error.message);
-      }
-    };
-    loadInitialRules(); 
+    let isMounted = true;
+    fetch("http://localhost:8000/rules")
+      .then(res => res.json())
+      .then(data => { if (isMounted) setRules(data); })
+      .catch(err => console.error("Error:", err.message));
+    
+    return () => { isMounted = false; };
   }, []);
 
-  const sensors = devices.filter(d => d.device_type !== 'lighting' && d.device_type !== 'air_control');
-  const controllers = devices.filter(d => d.device_type === 'lighting' || d.device_type === 'air_control');
+  const approvedDevices = devices.filter(d => d.status !== 'pending');
+  const sensors = approvedDevices.filter(d => d.device_type !== 'lighting' && d.device_type !== 'air_control');
+  const controllers = approvedDevices.filter(d => d.device_type === 'lighting' || d.device_type === 'air_control');
   const isBooleanKey = formData.sensor_key === 'occupancy' || formData.sensor_key === 'status' || formData.sensor_key === 'motion';
   const hasSelectedSensor = Boolean(formData.sensor_node_id);
 
@@ -126,8 +119,8 @@ export default function RuleManager({ devices }) {
           </div>
 
           <div className="flex items-end gap-3 flex-wrap">
-            <div className="flex-1 min-w-37.5">
-              <label className="block text-xs font-medium text-slate-500 mb-1">IF (Sensor)</label>
+            <div className="flex-1 min-w-37.5]">
+              <label className="block text-xs font-medium text-slate-500 mb-1">IF (Sensor / Device)</label>
               <select required className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 bg-white"
                 value={formData.sensor_node_id} onChange={e => setFormData({...formData, sensor_node_id: e.target.value})}>
                 <option value="">Select Sensor...</option>
@@ -187,7 +180,7 @@ export default function RuleManager({ devices }) {
 
             <div className="text-slate-400 font-medium text-sm pb-2">THEN</div>
 
-            <div className="flex-1 min-w-37.5">
+            <div className="flex-1 min-w-37.5]">
               <label className="block text-xs font-medium text-slate-500 mb-1">Target Device</label>
               <select required disabled={!hasSelectedSensor} className="w-full border-slate-300 rounded-md text-sm p-2 outline-none focus:ring-2 focus:ring-emerald-200 bg-white disabled:bg-slate-100 disabled:text-slate-400 disabled:cursor-not-allowed"
                 value={formData.target_node_id} onChange={e => setFormData({...formData, target_node_id: e.target.value})}>

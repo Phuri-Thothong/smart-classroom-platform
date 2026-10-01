@@ -1,23 +1,87 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Calendar } from 'lucide-react';
+import { Calendar, Trash2, Edit3, X, AlertCircle } from 'lucide-react';
 
 export default function ScheduleManager({ roomsList = [], onAddClick, refreshTrigger }) {
   const [schedules, setSchedules] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [editScheduleData, setEditScheduleData] = useState(null);
+  const [editError, setEditError] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+
   const activeRoom = selectedRoom || (roomsList.length > 0 ? roomsList[0].room_id : '');
 
+  const fetchSchedules = async () => {
+    try {
+      const res = await fetch("http://localhost:8000/schedules");
+      if (res.ok) setSchedules(await res.json());
+    } catch (error) {
+      console.error("Error fetching schedules:", error.message);
+    }
+  };
+
   useEffect(() => {
-    const fetchSchedules = async () => {
-      try {
-        const res = await fetch("http://localhost:8000/schedules");
-        const data = await res.json();
-        setSchedules(data);
-      } catch (error) {
-        console.error("Error fetching schedules", error);
-      }
-    };
-    fetchSchedules();
+    let isMounted = true;
+    fetch("http://localhost:8000/schedules")
+      .then(res => res.json())
+      .then(data => { if (isMounted) setSchedules(data); })
+      .catch(err => console.error(err.message));
+      
+    return () => { isMounted = false; };
   }, [refreshTrigger]);
+
+  const executeDelete = async () => {
+    if (!deleteConfirmId) return;
+    try {
+      const res = await fetch(`http://localhost:8000/schedules/${deleteConfirmId}`, { method: 'DELETE' });
+      if (!res.ok) throw new Error("Failed to delete from database");
+      setDeleteConfirmId(null);
+      fetchSchedules(); 
+    } catch (error) {
+      alert(`Error deleting class: ${error.message}`);
+    }
+  };
+
+  const handleUpdateSchedule = async (e) => {
+    e.preventDefault();
+    setEditError('');
+    
+    if (editScheduleData.start_time >= editScheduleData.end_time) {
+      setEditError('End time must be after start time.');
+      return;
+    }
+
+    setIsSaving(true);
+    const submitData = {
+      room_id: editScheduleData.room_id,
+      day_of_week: parseInt(editScheduleData.day_of_week),
+      start_time: `${editScheduleData.start_time}:00`,
+      end_time: `${editScheduleData.end_time}:00`,
+      subject_code: editScheduleData.subject_code,
+      subject_name: editScheduleData.subject_name
+    };
+
+    try {
+      const res = await fetch(`http://localhost:8000/schedules/${editScheduleData.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(submitData)
+      });
+      
+      if (!res.ok) {
+        const errData = await res.json();
+        const errMsg = Array.isArray(errData.detail) ? errData.detail[0] : errData.detail;
+        throw new Error(errMsg || 'Failed to update schedule');
+      }
+      
+      setEditScheduleData(null);
+      fetchSchedules();
+    } catch (error) {
+      setEditError(error.message);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const days = [
     { id: 2, name: 'Mon' }, { id: 3, name: 'Tue' }, { id: 4, name: 'Wed' },
@@ -41,10 +105,9 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
   };
 
   const palette = [
-    "bg-blue-600", "bg-emerald-600", "bg-rose-600", "bg-purple-600", 
-    "bg-amber-600", "bg-cyan-600", "bg-indigo-600", "bg-pink-600",
-    "bg-teal-600", "bg-fuchsia-600", "bg-orange-600", "bg-lime-600",
-    "bg-sky-600", "bg-violet-600", "bg-red-600", "bg-green-600"
+    "bg-slate-500", "bg-indigo-400", "bg-teal-500", "bg-rose-400", 
+    "bg-sky-500", "bg-violet-400", "bg-emerald-400", "bg-fuchsia-400",
+    "bg-orange-400", "bg-cyan-500", "bg-pink-400", "bg-blue-400"
   ];
 
   const roomSchedules = useMemo(() => {
@@ -62,8 +125,113 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
     return palette[index % palette.length];
   };
 
+  const formatTimeForInput = (timeStr) => {
+    return timeStr ? timeStr.substring(0, 5) : '';
+  };
+
   return (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mt-6">
+    <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mt-6 relative">
+
+      {deleteConfirmId && (
+        <div className="absolute inset-0 bg-white/80 backdrop-blur-sm z-20 flex items-center justify-center rounded-xl">
+          <div className="bg-white border border-slate-200 shadow-xl rounded-xl p-6 max-w-sm w-full text-center">
+            <div className="mx-auto w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-4">
+              <Trash2 size={24} />
+            </div>
+            <h3 className="text-lg font-bold text-slate-800 mb-2">Delete Class Schedule?</h3>
+            <p className="text-sm text-slate-500 mb-6">This action cannot be undone. Are you sure you want to remove this class?</p>
+            <div className="flex gap-3 justify-center">
+              <button onClick={() => setDeleteConfirmId(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
+                Cancel
+              </button>
+              <button onClick={executeDelete} className="px-4 py-2 text-sm font-medium text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-sm transition-colors">
+                Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editScheduleData && (
+        <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
+            <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 bg-slate-50">
+              <h3 className="font-semibold text-slate-800">Edit Class Schedule</h3>
+              <button onClick={() => setEditScheduleData(null)} className="text-slate-400 hover:text-slate-600 transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateSchedule} className="p-6 space-y-4">
+              {editError && (
+                <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm flex items-start gap-2 border border-red-100">
+                  <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Room</label>
+                  <select 
+                    className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 bg-slate-50 border outline-none focus:ring-2 focus:ring-blue-100"
+                    value={editScheduleData.room_id} onChange={e => setEditScheduleData({...editScheduleData, room_id: e.target.value})} required
+                  >
+                    {roomsList.map(r => <option key={r.room_id} value={r.room_id}>{r.room_id}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Day</label>
+                  <select 
+                    className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 bg-slate-50 border outline-none focus:ring-2 focus:ring-blue-100"
+                    value={editScheduleData.day_of_week} onChange={e => setEditScheduleData({...editScheduleData, day_of_week: e.target.value})} required
+                  >
+                    {days.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Start Time</label>
+                  <input type="time" required
+                    className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100"
+                    value={editScheduleData.start_time} onChange={e => setEditScheduleData({...editScheduleData, start_time: e.target.value})} />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-1">End Time</label>
+                  <input type="time" required
+                    className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100"
+                    value={editScheduleData.end_time} onChange={e => setEditScheduleData({...editScheduleData, end_time: e.target.value})} />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-1">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Subject Code</label>
+                  <input type="text" required
+                    className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100 uppercase"
+                    value={editScheduleData.subject_code} onChange={e => setEditScheduleData({...editScheduleData, subject_code: e.target.value.toUpperCase()})} />
+                </div>
+                <div className="col-span-2">
+                  <label className="block text-xs font-medium text-slate-500 mb-1">Subject Name</label>
+                  <input type="text" required
+                    className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100 uppercase"
+                    value={editScheduleData.subject_name} onChange={e => setEditScheduleData({...editScheduleData, subject_name: e.target.value.toUpperCase()})} />
+                </div>
+              </div>
+
+              <div className="pt-4 flex justify-end gap-3">
+                <button type="button" onClick={() => setEditScheduleData(null)} disabled={isSaving} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-md transition-colors disabled:opacity-50">Cancel</button>
+                <button type="submit" disabled={isSaving} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm transition-colors flex items-center disabled:opacity-50">
+                  {isSaving ? 'Updating...' : 'Update Class'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-center mb-6">
         <div className="flex items-center gap-4">
           <h2 className="text-xl font-bold text-slate-800 flex items-center gap-2">
@@ -112,7 +280,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
           const dayClasses = roomSchedules.filter(s => s.day_of_week === day.id);
           
           return (
-            <div key={day.id} className="flex border-b border-slate-200 last:border-b-0 min-h-15 bg-white group hover:bg-slate-50 transition-colors">
+            <div key={day.id} className="flex border-b border-slate-200 last:border-b-0 min-h-[60px] bg-white group/row hover:bg-slate-50 transition-colors">
               <div className="w-24 shrink-0 flex items-center justify-center border-r border-slate-200 font-medium text-slate-700 text-sm">
                 {day.name}
               </div>
@@ -129,12 +297,39 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                   return (
                     <div 
                       key={cls.id} 
-                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs overflow-hidden ${colorClass} hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all cursor-pointer`}
+                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs overflow-hidden ${colorClass} hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all cursor-pointer group`}
                       style={{ left: style.left, width: style.width }}
                       title={`${cls.start_time.substring(0,5)} - ${cls.end_time.substring(0,5)}\n${cls.subject_code} ${cls.subject_name}`}
                     >
-                      <div className="font-semibold truncate">{cls.subject_code}</div>
+                      <div className="font-semibold truncate pr-12">{cls.subject_code}</div>
                       <div className="truncate opacity-90">{cls.subject_name}</div>
+                      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity bg-black/20 rounded p-0.5 backdrop-blur-sm">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditScheduleData({
+                              ...cls,
+                              start_time: formatTimeForInput(cls.start_time),
+                              end_time: formatTimeForInput(cls.end_time)
+                            });
+                          }}
+                          className="text-white hover:text-blue-200 p-0.5 rounded transition-colors"
+                          title="Edit Class"
+                        >
+                          <Edit3 size={12} />
+                        </button>
+                        <div className="w-px h-3 bg-white/30"></div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDeleteConfirmId(cls.id);
+                          }}
+                          className="text-white hover:text-red-200 p-0.5 rounded transition-colors"
+                          title="Delete Class"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
                     </div>
                   );
                 })}
