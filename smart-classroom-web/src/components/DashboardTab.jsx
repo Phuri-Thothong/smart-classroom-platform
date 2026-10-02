@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight, Terminal } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -9,6 +9,7 @@ export default function DashboardTab({
   onToggleDevice, onDeleteDevice, onOpenAddRoom, onOpenManageRooms, onOpenDeviceSetup
 }) {
   const [telemetryData, setTelemetryData] = useState([]);
+  const [systemLogs, setSystemLogs] = useState([]); // ใช้รับข้อมูลจริง
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
@@ -41,6 +42,16 @@ export default function DashboardTab({
     return filteredDevices.filter(d => d.status !== 'pending' && (d.device_type === 'lighting' || d.device_type === 'air_control'));
   }, [filteredDevices]);
 
+  const controllersByRoom = useMemo(() => {
+    const grouped = {};
+    activeControllers.forEach(device => {
+      const room = device.room_id || 'Unassigned';
+      if (!grouped[room]) grouped[room] = [];
+      grouped[room].push(device);
+    });
+    return grouped;
+  }, [activeControllers]);
+
   const graphNodes = useMemo(() => {
     return filteredDevices.filter(d => d.status !== 'pending' && d.device_type === 'energy_node');
   }, [filteredDevices]);
@@ -57,29 +68,44 @@ export default function DashboardTab({
   const offlineGateways = useMemo(() => Object.entries(gatewayStatus).filter(([, status]) => status === 'offline').map(([id]) => id), [gatewayStatus]);
   const offlineGatewaysCount = offlineGateways.length;
 
-  const fetchTelemetry = useCallback(() => {
-    if (!activeGraphNode) return;
-    fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry?limit=${timeRange}`)
+  const fetchTelemetryAndLogs = useCallback(() => {
+    // 1. ดึงข้อมูลกราฟพลังงาน
+    if (activeGraphNode) {
+      fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry?limit=${timeRange}`)
+        .then(res => res.json())
+        .then(data => {
+          const formattedData = data.map(item => {
+            const sensorData = typeof item.data === 'string' ? JSON.parse(item.data) : item.data;
+            const date = new Date(item.timestamp);
+            return {
+              time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              power: sensorData.power_usage_watts || 0
+            };
+          }).reverse();
+          setTelemetryData(formattedData);
+        }).catch(() => {});
+    }
+
+    // 2. ดึงข้อมูล Log จริงจากฐานข้อมูล
+    fetch(`${API_BASE_URL}/logs?limit=30`)
       .then(res => res.json())
       .then(data => {
-        const formattedData = data.map(item => {
-          const sensorData = typeof item.data === 'string' ? JSON.parse(item.data) : item.data;
-          const date = new Date(item.timestamp);
-          return {
-            time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-            power: sensorData.power_usage_watts || 0
-          };
-        }).reverse();
-        setTelemetryData(formattedData);
-      })
-      .catch(err => console.error("Telemetry Error:", err.message));
+        const formattedLogs = data.map(log => ({
+          id: log.id,
+          time: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+          source: log.source,
+          type: log.log_type,
+          msg: log.message
+        }));
+        setSystemLogs(formattedLogs);
+      }).catch(() => {});
   }, [activeGraphNode, timeRange]);
 
   useEffect(() => {
-    fetchTelemetry();
-    const interval = setInterval(fetchTelemetry, 5000);
+    fetchTelemetryAndLogs();
+    const interval = setInterval(fetchTelemetryAndLogs, 5000);
     return () => clearInterval(interval);
-  }, [fetchTelemetry]);
+  }, [fetchTelemetryAndLogs]);
 
   const getDeviceIcon = (type) => {
     if (!type) return <Activity size={18} />;
@@ -90,59 +116,78 @@ export default function DashboardTab({
     return <Activity size={18} />;
   };
 
+  const getLogColor = (type, source) => {
+    if (type === 'WARN' || type === 'ERROR') return 'text-red-400';
+    if (source === 'SCHEDULE') return 'text-purple-400';
+    if (source === 'RULE') return 'text-emerald-400';
+    if (source === 'MANUAL') return 'text-blue-400';
+    return 'text-slate-400';
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       
-      {/* ---------------- QUICK CONTROLS SECTION ---------------- */}
-      {activeControllers.length > 0 && (
+      {/* ---------------- 1. QUICK CONTROLS ---------------- */}
+      {Object.keys(controllersByRoom).length > 0 && (
         <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
-          <div className="flex items-center gap-2 mb-4">
+          <div className="flex items-center gap-2 mb-5">
             <div className="bg-blue-100 p-1.5 rounded-lg text-blue-600">
               <Power size={18} />
             </div>
             <h3 className="text-lg font-semibold text-slate-800">Quick Controls</h3>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
-            {activeControllers.map(device => {
-             const isOn = deviceStatus[device.node_id] !== undefined 
-                ? deviceStatus[device.node_id] 
-                : (device.device_state === 'ON');
-              const isOffline = device.status === 'offline';
-              return (
-                <div key={`ctrl-${device.node_id}`} className={`border rounded-xl p-4 flex flex-col justify-between transition-colors ${isOn && !isOffline ? 'border-blue-300 bg-blue-50/50 shadow-sm' : 'border-slate-200 bg-slate-50'} ${isOffline ? 'opacity-60 grayscale' : ''}`}>
-                  <div className="flex justify-between items-start mb-3">
-                    <div className={`p-2 rounded-lg ${isOn && !isOffline ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-200 text-slate-500'}`}>
-                      {getDeviceIcon(device.device_type)}
-                    </div>
-                    <button 
-                      onClick={() => onToggleDevice(device.node_id, isOn)} disabled={isOffline}
-                      className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed' : ''}`}
-                    >
-                      <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
-                    </button>
-                  </div>
-                  <div>
-                    <p className="font-semibold text-slate-800 text-sm truncate">{device.device_name || device.node_id}</p>
-                    <div className="flex justify-between items-center mt-1">
-                      <p className="text-xs text-slate-500">{device.room_id || 'Unassigned'}</p>
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOn && !isOffline ? 'bg-blue-100 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>
-                        {isOffline ? 'OFFLINE' : isOn ? 'ON' : 'OFF'}
-                      </span>
-                    </div>
-                  </div>
+          
+          <div className="space-y-6">
+            {Object.entries(controllersByRoom).map(([room, devicesInRoom]) => (
+              <div key={room} className="bg-slate-50/50 rounded-xl p-4 border border-slate-100">
+                <h4 className="text-sm font-bold text-slate-600 mb-3 flex items-center gap-2">
+                  <div className="w-2 h-2 rounded-full bg-blue-500"></div>
+                  Room: {room}
+                </h4>
+                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
+                  {devicesInRoom.map(device => {
+                    const isOn = deviceStatus[device.node_id] !== undefined 
+                      ? deviceStatus[device.node_id] 
+                      : (device.device_state === 'ON');
+                    const isOffline = device.status === 'offline';
+                    return (
+                      <div key={`ctrl-${device.node_id}`} className={`border rounded-xl p-4 flex flex-col justify-between transition-colors bg-white ${isOn && !isOffline ? 'border-blue-300 shadow-sm ring-1 ring-blue-100' : 'border-slate-200'} ${isOffline ? 'opacity-60 grayscale' : ''}`}>
+                        <div className="flex justify-between items-start mb-3">
+                          <div className={`p-2 rounded-lg ${isOn && !isOffline ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500'}`}>
+                            {getDeviceIcon(device.device_type)}
+                          </div>
+                          <button 
+                            onClick={() => onToggleDevice(device.node_id, isOn)} disabled={isOffline}
+                            className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed' : ''}`}
+                          >
+                            <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
+                          </button>
+                        </div>
+                        <div>
+                          <p className="font-semibold text-slate-800 text-sm truncate">{device.device_name || device.node_id}</p>
+                          <div className="flex justify-between items-center mt-1">
+                            <span className="text-xs text-slate-400 font-mono">{device.node_id.substring(0,8)}</span>
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOn && !isOffline ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                              {isOffline ? 'OFFLINE' : isOn ? 'ON' : 'OFF'}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
-              );
-            })}
+              </div>
+            ))}
           </div>
         </div>
       )}
 
-      {/* ---------------- DASHBOARD GRID ---------------- */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      {/* ---------------- 2. MIDDLE LAYOUT (FIXED HEIGHT GRID) ---------------- */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-125">
         
-        {/* NODE REGISTRY */}
-        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col">
-          <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        {/* LEFT: Device Management (Spans 2/3) */}
+        <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-125 lg:h-full">
+          <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
             <div className="flex items-center space-x-3">
               <h3 className="text-lg font-semibold text-slate-800">Device Management</h3>
               <span className="px-3 py-1 bg-slate-100 text-slate-600 text-xs font-medium rounded-full">Total: {filteredDevices.length}</span>
@@ -158,17 +203,13 @@ export default function DashboardTab({
                 ))}
               </select>
               <div className="flex space-x-1 border-l pl-2 border-slate-200">
-                <button onClick={onOpenAddRoom} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Add Room">
-                  <Plus size={18} />
-                </button>
-                <button onClick={onOpenManageRooms} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-md transition-colors" title="Manage Rooms">
-                  <Edit3 size={18} />
-                </button>
+                <button onClick={onOpenAddRoom} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Add Room"><Plus size={18} /></button>
+                <button onClick={onOpenManageRooms} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-md transition-colors" title="Manage Rooms"><Edit3 size={18} /></button>
               </div>
             </div>
           </div>
 
-          <div className="px-5 pt-3 pb-0 border-b border-slate-100 flex space-x-4 overflow-x-auto">
+          <div className="px-5 pt-3 pb-0 border-b border-slate-100 flex space-x-4 overflow-x-auto shrink-0">
             {['All', 'Lighting', 'Air Control', 'Occupancy', 'Energy Node'].map(type => (
               <button 
                 key={type} onClick={() => setSelectedType(type)}
@@ -179,10 +220,10 @@ export default function DashboardTab({
             ))}
           </div>
           
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse min-w-150">
-              <thead>
-                <tr className="bg-slate-50 text-slate-500 text-sm uppercase tracking-wider">
+          <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar">
+            <table className="w-full text-left border-collapse min-w-150 relative">
+              <thead className="sticky top-0 bg-slate-50/95 backdrop-blur z-10 shadow-sm">
+                <tr className="text-slate-500 text-sm uppercase tracking-wider">
                   <th className="p-4 font-medium">Device Info</th>
                   <th className="p-4 font-medium">Type</th>
                   <th className="p-4 font-medium">Onboarding / Status</th>
@@ -205,9 +246,7 @@ export default function DashboardTab({
                       <tr key={device.node_id} className={`hover:bg-slate-50 transition-colors ${isOffline ? 'opacity-70' : ''}`}>
                         <td className="p-4">
                           <div className="flex items-center space-x-3">
-                            <div className={`p-2 rounded-lg ${iconBgColor}`}>
-                              {getDeviceIcon(device.device_type)}
-                            </div>
+                            <div className={`p-2 rounded-lg ${iconBgColor}`}>{getDeviceIcon(device.device_type)}</div>
                             <div>
                               <p className={`font-medium ${isOffline ? 'text-slate-500' : 'text-slate-800'}`}>{device.device_name || device.node_id}</p>
                               <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
@@ -241,8 +280,7 @@ export default function DashboardTab({
                             </div>
                           ) : (
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border ${badgeColor}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotColor}`}></span>
-                              {isOffline ? 'Offline' : 'Online & Active'}
+                              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotColor}`}></span>{isOffline ? 'Offline' : 'Online & Active'}
                             </span>
                           )}
                         </td>
@@ -253,12 +291,8 @@ export default function DashboardTab({
                             </button>
                           ) : (
                             <div className="flex space-x-1">
-                              <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors" title="Settings">
-                                <Settings size={16} />
-                              </button>
-                              <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete">
-                                <Trash2 size={16} />
-                              </button>
+                              <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors" title="Settings"><Settings size={16} /></button>
+                              <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete"><Trash2 size={16} /></button>
                             </div>
                           )}
                         </td>
@@ -271,45 +305,67 @@ export default function DashboardTab({
           </div>
         </div>
 
-        {/* SYSTEM ALERTS */}
-        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col">
-          <h3 className="text-lg font-semibold text-slate-800 mb-4">System Alerts</h3>
-          <div className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-4 
-            ${offlineGatewaysCount > 0 ? 'border-red-500 bg-red-50' : 
-              offlineCount > 0 ? 'border-orange-200 bg-orange-50/50' : 'border-slate-100'}`}
-          >
-            {offlineGatewaysCount > 0 ? (
-              <div className="text-center w-full">
-                <ServerCrash className="mx-auto text-red-600 mb-2 animate-pulse" size={36} />
-                <p className="text-base font-bold text-red-700">CRITICAL ERROR</p>
-                <p className="text-sm font-semibold text-red-600 mt-1">{offlineGatewaysCount} Gateway(s) Offline</p>
-                <div className="mt-3 bg-red-100/50 rounded-lg p-3 max-h-24 overflow-y-auto text-xs text-red-700 text-left w-full space-y-2 border border-red-200">
-                  {offlineGateways.map(id => (<div key={id} className="flex items-center font-medium"><AlertTriangle size={12} className="mr-2 shrink-0" /> {id}</div>))}
+        {/* RIGHT: Alerts & Logs (Spans 1/3) */}
+        <div className="lg:col-span-1 flex flex-col gap-6 h-full">
+          
+          {/* SYSTEM ALERTS */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 flex flex-col shrink-0 min-h-40">
+            <h3 className="text-lg font-semibold text-slate-800 mb-4">System Alerts</h3>
+            <div className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-4 
+              ${offlineGatewaysCount > 0 ? 'border-red-500 bg-red-50' : offlineCount > 0 ? 'border-orange-200 bg-orange-50/50' : 'border-slate-100'}`}
+            >
+              {offlineGatewaysCount > 0 ? (
+                <div className="text-center w-full">
+                  <ServerCrash className="mx-auto text-red-600 mb-1 animate-pulse" size={28} />
+                  <p className="text-sm font-bold text-red-700">CRITICAL ERROR</p>
+                  <p className="text-xs font-semibold text-red-600 mt-1">{offlineGatewaysCount} Gateway(s) Offline</p>
                 </div>
-              </div>
-            ) : offlineCount > 0 ? (
-              <div className="text-center w-full">
-                <ServerCrash className="mx-auto text-orange-500 mb-2" size={32} />
-                <p className="text-sm font-semibold text-orange-700">{offlineCount} Device(s) Offline</p>
-                <div className="mt-3 bg-orange-100/50 rounded-lg p-3 max-h-24 overflow-y-auto text-xs text-orange-700 text-left w-full space-y-2 border border-orange-200">
-                  {offlineNodes.map(id => (<div key={id} className="flex items-center font-medium"><AlertTriangle size={12} className="mr-2 shrink-0" /> {id}</div>))}
+              ) : offlineCount > 0 ? (
+                <div className="text-center w-full">
+                  <ServerCrash className="mx-auto text-orange-500 mb-1" size={28} />
+                  <p className="text-sm font-semibold text-orange-700">{offlineCount} Device(s) Offline</p>
                 </div>
-              </div>
-            ) : (
-              <div className="text-center">
-                <CheckCircle className="mx-auto text-emerald-400 mb-2" size={32} />
-                <p className="text-sm font-medium text-emerald-600">No critical issues</p>
-                <p className="text-xs text-slate-400 mt-1">All systems operational</p>
-              </div>
-            )}
+              ) : (
+                <div className="text-center">
+                  <CheckCircle className="mx-auto text-emerald-400 mb-1" size={28} />
+                  <p className="text-sm font-medium text-emerald-600">No critical issues</p>
+                </div>
+              )}
+            </div>
           </div>
+
+          {/* SYSTEM ACTIVITY LOG */}
+          <div className="bg-slate-900 rounded-xl shadow-sm border border-slate-800 p-5 flex flex-col flex-1 overflow-hidden">
+            <div className="flex items-center gap-2 mb-4 border-b border-slate-700 pb-3 shrink-0">
+              <Terminal size={18} className="text-emerald-400" />
+              <h3 className="text-base font-semibold text-slate-100">System Activity Log</h3>
+            </div>
+            <div className="flex-1 overflow-y-auto space-y-2.5 custom-scrollbar pr-2 min-h-0">
+              {systemLogs.length === 0 ? (
+                <div className="text-xs text-slate-500 text-center mt-4 font-mono">No system activities yet...</div>
+              ) : (
+                systemLogs.map(log => (
+                  <div key={log.id} className="text-xs font-mono border-l-2 border-slate-700 pl-3 py-0.5 animate-in fade-in slide-in-from-left-2 duration-300">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-slate-500">{log.time}</span>
+                      <span className={`px-1.5 py-0.5 rounded bg-slate-800 font-bold text-[9px] ${getLogColor(log.type, log.source)}`}>
+                        [{log.source}]
+                      </span>
+                    </div>
+                    <div className="text-slate-300 wrap-break-words leading-relaxed">{log.msg}</div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
         </div>
       </div>
 
-      {/* ENERGY TRENDS */}
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
+      {/* ---------------- 3. FULL WIDTH BOTTOM (ENERGY TRENDS) ---------------- */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 w-full">
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-semibold text-slate-800">Room Power Consumption (Energy Trends)</h3>
+          <h3 className="text-lg font-semibold text-slate-800">Room Power Consumption</h3>
           
           <div className="flex items-center gap-3">
             <select
@@ -344,7 +400,7 @@ export default function DashboardTab({
             <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
               <AlertTriangle className="text-amber-500 mb-2" size={28} />
               <p className="text-sm font-medium text-slate-600">Energy Meter Component Locked</p>
-              <p className="text-xs text-slate-400 mt-1">Please onboard and approve an Energy Node (`energy_node`) to activate this chart.</p>
+              <p className="text-xs text-slate-400 mt-1">Please onboard and approve an Energy Node to activate this chart.</p>
             </div>
           ) : !activeGraphNode || telemetryData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-lg">
