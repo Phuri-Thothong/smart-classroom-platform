@@ -28,4 +28,5 @@ hardware/
 eeprom_sim_*.json
 
 # Simulation Gateway Log files
+*.log
 gateway_flow.log
