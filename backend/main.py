@@ -20,12 +20,19 @@ from routers import rooms, devices, gateways, automation
 # =========================================================
 # 1. HELPER FUNCTIONS & SCHEDULER
 # =========================================================
-def trigger_room_devices(db: Session, room_id: str, action: str):
-    devices_in_room = db.query(Node).filter(Node.room_id == room_id, Node.device_type.in_(["lighting", "air_control"])).all()
+def trigger_room_devices(db: Session, room_id: str, action: str, device_type_filter: list = None):
+    query = db.query(Node).filter(Node.room_id == room_id)
+    if device_type_filter:
+        query = query.filter(Node.device_type.in_(device_type_filter))
+    else:
+        query = query.filter(Node.device_type.in_(["lighting", "air_control"]))
+        
+    devices_in_room = query.all()
     for dev in devices_in_room:
         payload = {"type": "command", "payload": {"device_id": dev.node_id, "action": action}}
         if mqtt_shared.mqtt_client:
             mqtt_shared.mqtt_client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(dev.node_id), json.dumps(payload))
+            print(f"[Scheduler] Published {action} to {dev.node_id} ({dev.device_type}) in {room_id}")
 
 def check_schedules_and_trigger():
     db = SessionLocal()
@@ -33,15 +40,23 @@ def check_schedules_and_trigger():
         now = datetime.now()
         current_day = (now.isoweekday() % 7) + 1 
         current_time_obj = now.time()
+        
         todays_classes = db.query(ClassSchedule).filter(ClassSchedule.day_of_week == current_day).all()
         
         for cls in todays_classes:
             start_datetime = datetime.combine(now.date(), cls.start_time)
-            pre_start_time = (start_datetime - timedelta(minutes=15)).time()
+            pre_start_time = (start_datetime - timedelta(minutes=1)).time()
             if current_time_obj.hour == pre_start_time.hour and current_time_obj.minute == pre_start_time.minute:
-                trigger_room_devices(db, cls.room_id, "ON")
+                print(f"[Scheduler] 15-Min Pre-cool for {cls.subject_code} in {cls.room_id}")
+                trigger_room_devices(db, cls.room_id, "ON", ["air_control"])
+
+            if current_time_obj.hour == cls.start_time.hour and current_time_obj.minute == cls.start_time.minute:
+                print(f"[Scheduler] Class Started: {cls.subject_code} in {cls.room_id}")
+                trigger_room_devices(db, cls.room_id, "ON", ["lighting"])
+
             if current_time_obj.hour == cls.end_time.hour and current_time_obj.minute == cls.end_time.minute:
-                trigger_room_devices(db, cls.room_id, "OFF")
+                print(f"[Scheduler] Class Ended: {cls.subject_code} in {cls.room_id}. Turning off devices.")
+                trigger_room_devices(db, cls.room_id, "OFF", ["lighting", "air_control"])
     finally:
         db.close()
 
