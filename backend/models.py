@@ -54,4 +54,13 @@ class ClassSchedule(Base):
     end_time = Column(Time, nullable=False)
     subject_code = Column(String)
     subject_name = Column(String)
+
+class SystemLog(Base):
+    __tablename__ = "system_logs"
+    
+    id = Column(Integer, primary_key=True, index=True, autoincrement=True)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now())
+    source = Column(String)  # 'PLATFORM', 'SCHEDULE', 'RULE', 'MANUAL', 'GATEWAY'
+    log_type = Column(String) # 'INFO', 'ACTION', 'WARN', 'ERROR'
+    message = Column(String)
     

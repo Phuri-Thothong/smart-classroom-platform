@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from database import get_db
-from models import Node, Telemetry
+from models import Node, Telemetry, SystemLog
 from schemas import DeviceConfig
 import mqtt_shared
 
@@ -88,9 +88,11 @@ def get_telemetry_api(device_id: str, limit: int = 10, db: Session = Depends(get
     return db.query(Telemetry).filter(Telemetry.node_id == device_id).order_by(desc(Telemetry.telemetry_id)).limit(limit).all()
 
 @router.post("/{device_id}/control")
-async def control_device_api(device_id: str, request: Request):
+async def control_device_api(device_id: str, request: Request, db: Session = Depends(get_db)):
     body = await request.json()
     action = body.get("action", "OFF")
     if mqtt_shared.mqtt_client: 
         mqtt_shared.mqtt_client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id), json.dumps({"type": "command", "payload": {"device_id": device_id, "action": action}}))
+        db.add(SystemLog(source="MANUAL", log_type="ACTION", message=f"Admin turned {action} {device_id}"))
+        db.commit()
     return {"status": "success"}

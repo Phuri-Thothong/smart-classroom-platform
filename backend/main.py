@@ -4,14 +4,14 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from apscheduler.schedulers.background import BackgroundScheduler
 import paho.mqtt.client as mqtt
-from fastapi import FastAPI
+from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 import uvicorn
 
 # --- Import Database Tools & Shared Variables ---
-from database import engine, Base, SessionLocal
-from models import Node, Room, Telemetry, AutomationRule, ClassSchedule
+from database import engine, Base, SessionLocal, get_db
+from models import Node, Room, Telemetry, AutomationRule, ClassSchedule, SystemLog
 import mqtt_shared
 
 # --- Import Routers ---
@@ -33,6 +33,15 @@ def trigger_room_devices(db: Session, room_id: str, action: str, device_type_fil
         if mqtt_shared.mqtt_client:
             mqtt_shared.mqtt_client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(dev.node_id), json.dumps(payload))
             print(f"[Scheduler] Published {action} to {dev.node_id} ({dev.device_type}) in {room_id}")
+
+            db.add(SystemLog(
+                source="SCHEDULE", 
+                log_type="ACTION", 
+                message=f"Triggered {action} for {dev.device_name or dev.node_id} in {room_id}"
+            ))
+            
+    if devices_in_room:
+        db.commit()
 
 def check_schedules_and_trigger():
     db = SessionLocal()
@@ -124,12 +133,19 @@ def on_message(client, userdata, msg):
                                 elif rule.condition_operator == "!=" and val_f != thres_f: trigger = True
                         except ValueError:
                             pass
+                        
                         if trigger:
                             client.publish(
                                 mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), 
                                 json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}})
                             )
                             print(f"[Rule Engine] Triggered: {device_id} -> {rule.target_node_id} ({rule.action})")
+                            db.add(SystemLog(
+                                source="RULE", 
+                                log_type="ACTION", 
+                                message=f"Rule '{rule.name}' turned {rule.action} {rule.target_node_id}"
+                            ))
+                            db.commit()
         finally:
             db.close() 
     except Exception as e: pass
@@ -167,6 +183,9 @@ app.include_router(devices.router)
 app.include_router(gateways.router)
 app.include_router(automation.router)
 
+@app.get("/logs", tags=["Logs"])
+def get_system_logs(limit: int = 50, db: Session = Depends(get_db)):
+    return db.query(SystemLog).order_by(SystemLog.id.desc()).limit(limit).all()
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
-    
