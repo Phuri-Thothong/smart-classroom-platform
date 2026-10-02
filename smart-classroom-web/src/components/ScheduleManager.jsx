@@ -11,6 +11,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
   const [editScheduleData, setEditScheduleData] = useState(null);
   const [editError, setEditError] = useState('');
   const [isSaving, setIsSaving] = useState(false);
+  const [activeClassMenu, setActiveClassMenu] = useState(null);
 
   const activeRoom = selectedRoom || (roomsList.length > 0 ? roomsList[0].room_id : '');
 
@@ -29,6 +30,12 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
       .catch(err => console.error(err.message));
     return () => { isMounted = false; };
   }, [refreshTrigger]);
+
+  useEffect(() => {
+    const handleClickOutside = () => setActiveClassMenu(null);
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
 
   const executeDelete = async () => {
     if (!deleteConfirmData) return;
@@ -278,39 +285,51 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                   return (
                     <div 
                       key={cls.id} 
-                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs overflow-hidden ${colorClass} hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all cursor-pointer group`}
+                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs ${colorClass} hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all cursor-pointer flex flex-col justify-center`}
                       style={{ left: style.left, width: style.width }}
                       title={`${cls.start_time.substring(0,5)} - ${cls.end_time.substring(0,5)}\n${cls.subject_code} ${cls.subject_name}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setActiveClassMenu(activeClassMenu === cls.id ? null : cls.id);
+                      }}
                     >
-                      <div className="font-semibold truncate pr-12">{cls.subject_code}</div>
+                      <div className="font-semibold truncate">{cls.subject_code}</div>
                       <div className="truncate opacity-90">{cls.subject_name}</div>
-                      <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity bg-black/20 rounded p-0.5 backdrop-blur-sm">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setEditScheduleData({
-                              ...cls,
-                              start_time: formatTimeForInput(cls.start_time),
-                              end_time: formatTimeForInput(cls.end_time)
-                            });
-                          }}
-                          className="text-white hover:text-blue-200 p-0.5 rounded transition-colors"
-                          title="Edit Class"
+
+                      {activeClassMenu === cls.id && (
+                        <div 
+                          className="absolute z-50 bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white shadow-xl rounded-md p-1 flex items-center gap-1 cursor-default min-w-max"
+                          onClick={(e) => e.stopPropagation()}
                         >
-                          <Edit3 size={12} />
-                        </button>
-                        <div className="w-px h-3 bg-white/30"></div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDeleteConfirmData(cls);
-                          }}
-                          className="text-white hover:text-red-200 p-0.5 rounded transition-colors"
-                          title="Delete Class"
-                        >
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditScheduleData({
+                                ...cls,
+                                start_time: formatTimeForInput(cls.start_time),
+                                end_time: formatTimeForInput(cls.end_time)
+                              });
+                              setActiveClassMenu(null);
+                            }}
+                            className="hover:bg-slate-700 text-slate-100 hover:text-white px-2 py-1.5 rounded transition-colors flex items-center gap-1.5 text-xs font-medium"
+                          >
+                            <Edit3 size={14} /> <span>Edit</span>
+                          </button>
+                          <div className="w-px h-4 bg-slate-600"></div>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteConfirmData(cls);
+                              setActiveClassMenu(null);
+                            }}
+                            className="hover:bg-rose-500 text-rose-300 hover:text-white px-2 py-1.5 rounded transition-colors flex items-center gap-1.5 text-xs font-medium"
+                          >
+                            <Trash2 size={14} /> <span>Delete</span>
+                          </button>
+                          
+                          <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2.5 h-2.5 bg-slate-800 rotate-45"></div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}
