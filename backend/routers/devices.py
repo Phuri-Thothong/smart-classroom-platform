@@ -22,7 +22,8 @@ def get_devices(db: Session = Depends(get_db)):
             "node_id": node.node_id, "room_id": node.room_id, "gateway_id": node.gateway_id,
             "device_type": node.device_type, "device_name": node.device_name,
             "status": node.status, "sampling_interval": caps.get("sampling_interval", 5),
-            "telemetry_interval": caps.get("telemetry_interval", 10)
+            "telemetry_interval": caps.get("telemetry_interval", 10),
+            "device_state": "OFF"
         }
         
         if node.status != "pending":
@@ -32,6 +33,12 @@ def get_devices(db: Session = Depends(get_db)):
                     time_str = latest_tel.timestamp.replace("Z", "")
                     tel_time = datetime.fromisoformat(time_str) if isinstance(latest_tel.timestamp, str) else latest_tel.timestamp.replace(tzinfo=None)
                     node_data["status"] = "offline" if (current_time - tel_time).total_seconds() > 15 else "active"
+                    t_data = latest_tel.data
+                    if isinstance(t_data, str):
+                        try: t_data = json.loads(t_data)
+                        except: t_data = {}
+                    if isinstance(t_data, dict):
+                        node_data["device_state"] = t_data.get("status", "OFF")
                 except Exception: node_data["status"] = "offline"
             else: node_data["status"] = "offline"
         result.append(node_data)

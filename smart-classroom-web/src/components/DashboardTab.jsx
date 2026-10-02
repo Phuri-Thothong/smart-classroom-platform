@@ -104,7 +104,9 @@ export default function DashboardTab({
           </div>
           <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
             {activeControllers.map(device => {
-              const isOn = deviceStatus[device.node_id] || false;
+             const isOn = deviceStatus[device.node_id] !== undefined 
+                ? deviceStatus[device.node_id] 
+                : (device.device_state === 'ON');
               const isOffline = device.status === 'offline';
               return (
                 <div key={`ctrl-${device.node_id}`} className={`border rounded-xl p-4 flex flex-col justify-between transition-colors ${isOn && !isOffline ? 'border-blue-300 bg-blue-50/50 shadow-sm' : 'border-slate-200 bg-slate-50'} ${isOffline ? 'opacity-60 grayscale' : ''}`}>
