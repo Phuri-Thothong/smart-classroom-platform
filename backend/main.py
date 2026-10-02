@@ -54,7 +54,7 @@ def check_schedules_and_trigger():
         
         for cls in todays_classes:
             start_datetime = datetime.combine(now.date(), cls.start_time)
-            pre_start_time = (start_datetime - timedelta(minutes=1)).time()
+            pre_start_time = (start_datetime - timedelta(minutes=15)).time()
             if current_time_obj.hour == pre_start_time.hour and current_time_obj.minute == pre_start_time.minute:
                 print(f"[Scheduler] 15-Min Pre-cool for {cls.subject_code} in {cls.room_id}")
                 trigger_room_devices(db, cls.room_id, "ON", ["air_control"])
