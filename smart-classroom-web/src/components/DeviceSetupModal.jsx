@@ -8,22 +8,30 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
   const [formData, setFormData] = useState(() => {
     if (!device) return { room_id: '', device_name: '', sampling_interval: 5, telemetry_interval: 8, gpio_config: {} };
 
-    let defaultGpio = {};
-    const type = device.device_type;
-    if (type === 'lighting' || type === 'air_control') {
-      defaultGpio = { control_pin: 26 };
-    } else if (type === 'occupancy') {
-      defaultGpio = { out_pin: 27 };
-    } else if (type === 'energy_node') {
-      defaultGpio = { rx_pin: 16, tx_pin: 17 };
+    let caps = {};
+    if (device.capabilities) {
+      caps = typeof device.capabilities === 'string' ? JSON.parse(device.capabilities) : device.capabilities;
+    }
+
+    let defaultGpio = caps.gpio_config || {};
+    
+    if (Object.keys(defaultGpio).length === 0) {
+      const type = device.device_type;
+      if (type === 'lighting' || type === 'air_control') {
+        defaultGpio = { control_pin: 26 };
+      } else if (type === 'occupancy') {
+        defaultGpio = { out_pin: 27 };
+      } else if (type === 'energy_node') {
+        defaultGpio = { rx_pin: 16, tx_pin: 17 };
+      }
     }
 
     return {
       room_id: device.room_id || (roomsList.length > 0 ? roomsList[0].room_id : ''),
       device_name: device.device_name || '',
-      sampling_interval: device.config?.sampling_interval || 5,
-      telemetry_interval: device.config?.telemetry_interval || 8,
-      gpio_config: device.config?.gpio_config || defaultGpio
+      sampling_interval: caps.sampling_interval || device.sampling_interval || 5,
+      telemetry_interval: caps.telemetry_interval || device.telemetry_interval || 8,
+      gpio_config: defaultGpio
     };
   });
 

@@ -3,6 +3,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Request, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import desc
+from sqlalchemy.orm.attributes import flag_modified
 from database import get_db
 from models import Node, Telemetry, SystemLog
 from schemas import DeviceConfig
@@ -16,13 +17,17 @@ def get_devices(db: Session = Depends(get_db)):
     result, current_time = [], datetime.utcnow()
     for node in nodes:
         caps = node.capabilities if isinstance(node.capabilities, dict) else (json.loads(node.capabilities) if isinstance(node.capabilities, str) else {})
-        if isinstance(caps, str): caps = json.loads(caps)
+        if isinstance(caps, str): 
+            try: caps = json.loads(caps)
+            except: caps = {}
         
         node_data = {
             "node_id": node.node_id, "room_id": node.room_id, "gateway_id": node.gateway_id,
             "device_type": node.device_type, "device_name": node.device_name,
-            "status": node.status, "sampling_interval": caps.get("sampling_interval", 5),
+            "status": node.status, 
+            "sampling_interval": caps.get("sampling_interval", 5),
             "telemetry_interval": caps.get("telemetry_interval", 10),
+            "capabilities": caps,
             "device_state": "OFF"
         }
         
@@ -55,19 +60,39 @@ def approve_device_api(device_id: str, config: DeviceConfig, db: Session = Depen
     node.status = "approved"
     if config.device_name: node.device_name = config.device_name
     if config.room_id: node.room_id = config.room_id
-    caps = node.capabilities if isinstance(node.capabilities, dict) else {}
-    caps.update({"sampling_interval": config.sampling_interval, "telemetry_interval": config.telemetry_interval})
+    caps = {}
+    if node.capabilities:
+        if isinstance(node.capabilities, str):
+            try:
+                parsed = json.loads(node.capabilities)
+                caps = json.loads(parsed) if isinstance(parsed, str) else parsed
+            except:
+                pass
+        elif isinstance(node.capabilities, dict):
+            caps = dict(node.capabilities)
+    if not isinstance(caps, dict):
+        caps = {}
+    caps["sampling_interval"] = config.sampling_interval
+    caps["telemetry_interval"] = config.telemetry_interval
+    if config.gpio_config:
+        caps["gpio_config"] = config.gpio_config
     node.capabilities = caps 
+    flag_modified(node, "capabilities")
     db.commit()
+    db.refresh(node)
     config_data = {
         "device_id": device_id, 
         "config_version": 1, 
-        **caps, 
+        "sampling_interval": config.sampling_interval,
+        "telemetry_interval": config.telemetry_interval,
         "enabled": config.enabled,
         "gpio_config": config.gpio_config
     }
     if mqtt_shared.mqtt_client: 
-        mqtt_shared.mqtt_client.publish(mqtt_shared.MQTT_CONFIG_TOPIC.format(device_id), json.dumps({"type": "config", "payload": config_data}))
+        topic = mqtt_shared.MQTT_CONFIG_TOPIC.format(device_id)
+        mqtt_shared.mqtt_client.publish(topic, json.dumps({"type": "config", "payload": config_data}))
+        print(f"\n[Platform] Configuration sent to {topic}")
+        
     return {"device": node, "configuration": config_data}
 
 @router.post("/{device_id}/config")
