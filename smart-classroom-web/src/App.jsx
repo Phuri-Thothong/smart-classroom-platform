@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useToast } from './contexts/ToastContext';
 import Sidebar from './components/Sidebar';
 import ConfirmModal from './components/ConfirmModal';
 import AddRoomModal from './components/AddRoomModal';
@@ -12,6 +13,8 @@ import DashboardTab from './components/DashboardTab';
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 export default function App() {
+  const { showToast } = useToast();
+
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('smartclass_tab') || 'dashboard');
   const [devices, setDevices] = useState([]);
   const [roomsList, setRoomsList] = useState([]);
@@ -95,8 +98,9 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to create room");
       setIsAddRoomOpen(false);
       fetchRooms();
+      showToast("Room created successfully", "success");
     } catch (error) { 
-      alert(`Error saving room: ${error.message}`); 
+      showToast(`Error saving room: ${error.message}`, "error");
     }
   };
 
@@ -110,9 +114,10 @@ export default function App() {
           const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, { method: 'DELETE' });
           if (!res.ok) throw new Error("Failed to delete room");
           fetchRooms();
-          fetchDevices(); 
+          fetchDevices();
+          showToast(`Room ${roomId} deleted`, "success"); 
         } catch (error) { 
-          alert(`Error deleting room: ${error.message}`); 
+          showToast(`Error deleting room: ${error.message}`, "error"); 
         }
         finally { setGlobalConfirm({ isOpen: false }); }
       }
@@ -130,8 +135,9 @@ export default function App() {
       if (!res.ok) throw new Error("Failed to save configuration");
       setIsDeviceSetupOpen(false);
       fetchDevices();
+      showToast(isNewApproval ? "Device approved" : "Configuration saved", "success");
     } catch (error) { 
-      alert(`Error saving device configuration: ${error.message}`); 
+      showToast(`Error saving configuration: ${error.message}`, "error"); 
     }
   };
 
@@ -149,6 +155,7 @@ export default function App() {
     } catch (error) {
       console.error(`Control Error for ${id}:`, error.message);
       setDeviceStatus(prev => ({ ...prev, [id]: currentStatus }));
+      showToast(`Failed to control device: ${error.message}`, "error");
     }
   };
 
@@ -162,8 +169,9 @@ export default function App() {
           const res = await fetch(`${API_BASE_URL}/devices/${deviceId}`, { method: 'DELETE' });
           if (!res.ok) throw new Error("Failed to delete device");
           fetchDevices();
+          showToast("Device deleted successfully", "success");
         } catch (error) { 
-          alert(`Failed to delete device: ${error.message}`); 
+          showToast(`Failed to delete device: ${error.message}`, "error"); 
         }
         finally { setGlobalConfirm({ isOpen: false }); }
       }
@@ -173,6 +181,7 @@ export default function App() {
   const handleSaveClass = () => {
     setIsAddClassOpen(false);
     setScheduleRefreshCount(prev => prev + 1);
+    showToast("Class schedule saved", "success");
   };
 
   // ==========================================

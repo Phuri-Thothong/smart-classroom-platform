@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { Settings, Trash2, Power, Plus, Activity, X } from 'lucide-react';
+import { useToast } from '../contexts/ToastContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 export default function RuleManager({ devices }) {
+  const { showToast } = useToast();
   const [rules, setRules] = useState([]);
   const [isAdding, setIsAdding] = useState(false);
   const [formData, setFormData] = useState({
@@ -48,7 +50,7 @@ export default function RuleManager({ devices }) {
       if (!res.ok) throw new Error("API returned an error");
       fetchRules();
     } catch (error) { 
-      alert(`Failed to toggle rule: ${error.message}`); 
+      showToast(`Failed to toggle rule: ${error.message}`, "error");
     }
   };
 
@@ -58,15 +60,15 @@ export default function RuleManager({ devices }) {
       const res = await fetch(`${API_BASE_URL}/rules/${ruleId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("API returned an error");
       fetchRules();
+      showToast("Automation rule deleted", "success");
     } catch (error) { 
-      alert(`Failed to delete rule: ${error.message}`); 
+      showToast(`Failed to delete rule: ${error.message}`, "error");
     }
   };
 
   const handleSaveRule = async (e) => {
     e.preventDefault();
     
-    // เช็กค่าก่อนส่งว่าครบถ้วนไหม
     const payloadData = {
       name: formData.name,
       sensor_node_id: formData.sensor_node_id,
@@ -76,8 +78,6 @@ export default function RuleManager({ devices }) {
       target_node_id: formData.target_node_id,
       action: formData.action
     };
-
-    console.log("Submitting Rule Payload:", payloadData); // เช็กค่าใน F12 Console
 
     try {
       const res = await fetch(`${API_BASE_URL}/rules`, {
@@ -95,8 +95,9 @@ export default function RuleManager({ devices }) {
       setIsAdding(false);
       setFormData({ name: '', sensor_node_id: '', sensor_key: '', condition_operator: '>', condition_value: '', target_node_id: '', action: 'ON' });
       fetchRules();
+      showToast("Automation rule created successfully", "success")
     } catch (error) { 
-      alert(`Error saving rule: ${error.message}`); 
+      showToast(`Error saving rule: ${error.message}`, "error");
     }
   };
 

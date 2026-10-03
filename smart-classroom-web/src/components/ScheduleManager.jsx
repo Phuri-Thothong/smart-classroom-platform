@@ -1,10 +1,12 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Calendar, Trash2, Edit3, X, AlertCircle } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
+import { useToast } from '../contexts/ToastContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 export default function ScheduleManager({ roomsList = [], onAddClick, refreshTrigger }) {
+  const { showToast } = useToast();
   const [schedules, setSchedules] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
   const [deleteConfirmData, setDeleteConfirmData] = useState(null);
@@ -43,8 +45,11 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
       const res = await fetch(`${API_BASE_URL}/schedules/${deleteConfirmData.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Failed to delete from database");
       setDeleteConfirmData(null);
+      showToast("Class schedule removed", "success");
       fetchSchedules(); 
-    } catch (error) { alert(`Error deleting class: ${error.message}`); }
+    } catch (error) { 
+      showToast(`Error deleting class: ${error.message}`, "error"); 
+    }
   };
 
   const handleUpdateSchedule = async (e) => {
@@ -76,7 +81,11 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
       }
       setEditScheduleData(null);
       fetchSchedules();
-    } catch (error) { setEditError(error.message); } 
+      showToast("Schedule updated successfully", "success");
+    } catch (error) { 
+      setEditError(error.message); 
+      showToast(error.message, "error");
+    } 
     finally { setIsSaving(false); }
   };
 
