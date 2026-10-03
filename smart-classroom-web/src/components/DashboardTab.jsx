@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight, Terminal } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight, Terminal, ChevronDown } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -15,7 +15,7 @@ export default function DashboardTab({
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
   const [timeRange, setTimeRange] = useState('20');
-
+  
   const uniqueRooms = useMemo(() => ['All', ...new Set(roomsList.map(r => r.room_id))], [roomsList]);
   
   const filteredDevices = useMemo(() => {
@@ -52,6 +52,17 @@ export default function DashboardTab({
     });
     return grouped;
   }, [activeControllers]);
+
+  const [expandedRooms, setExpandedRooms] = useState(() => {
+    const firstRoom = Object.keys(controllersByRoom || {})[0];
+    return firstRoom ? [firstRoom] : [];
+  });
+
+  const toggleRoomCollapse = (room) => {
+    setExpandedRooms(prev => 
+      prev.includes(room) ? prev.filter(r => r !== room) : [...prev, room]
+    );
+  };
 
   const graphNodes = useMemo(() => {
     return filteredDevices.filter(d => d.status !== 'pending' && d.device_type === 'energy_node');
@@ -149,47 +160,63 @@ export default function DashboardTab({
             <h3 className="text-lg font-semibold text-slate-800">Quick Controls</h3>
           </div>
           
-          <div className="space-y-6">
-            {Object.entries(controllersByRoom).map(([room, devicesInRoom]) => (
-              <div key={room} className="bg-slate-50/50 rounded-xl p-4 border border-slate-100">
-                <h4 className="text-sm font-bold text-slate-600 mb-3 flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-blue-500"></div>
-                  Room: {room}
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {devicesInRoom.map(device => {
-                    const isOn = deviceStatus[device.node_id] !== undefined 
-                      ? deviceStatus[device.node_id] 
-                      : (device.device_state === 'ON');
-                    const isOffline = device.status === 'offline';
-                    return (
-                      <div key={`ctrl-${device.node_id}`} className={`border rounded-xl p-4 flex flex-col justify-between transition-colors bg-white ${isOn && !isOffline ? 'border-blue-300 shadow-sm ring-1 ring-blue-100' : 'border-slate-200'} ${isOffline ? 'opacity-60 grayscale' : ''}`}>
-                        <div className="flex justify-between items-start mb-3">
-                          <div className={`p-2 rounded-lg ${isOn && !isOffline ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500'}`}>
-                            {getDeviceIcon(device.device_type)}
+          <div className="space-y-4">
+            {Object.entries(controllersByRoom).map(([room, devicesInRoom]) => {
+              const isExpanded = expandedRooms.includes(room);
+              return (
+                <div key={room} className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden">
+                  {/* Header สำหรับกดพับ/กาง */}
+                  <div 
+                    onClick={() => toggleRoomCollapse(room)}
+                    className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-100/50 transition-colors"
+                  >
+                    <h4 className="text-sm font-bold text-slate-700 flex items-center gap-2">
+                      <div className={`w-2 h-2 rounded-full ${isExpanded ? 'bg-blue-500' : 'bg-slate-400'}`}></div>
+                      Room: {room} <span className="text-xs font-normal text-slate-500 ml-2">({devicesInRoom.length} devices)</span>
+                    </h4>
+                    <ChevronDown size={18} className={`text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
+                  </div>
+                  
+                  {/* ส่วนแสดงอุปกรณ์ */}
+                  <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100 p-4 pt-0' : 'max-h-0 opacity-0 overflow-hidden'}`}>
+                    <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
+                      {devicesInRoom.map(device => {
+                        const isOn = deviceStatus[device.node_id] !== undefined 
+                          ? deviceStatus[device.node_id] 
+                          : (device.device_state === 'ON');
+                        const isOffline = device.status === 'offline';
+                        
+                        return (
+                          <div key={`ctrl-${device.node_id}`} className={`border rounded-xl p-4 flex flex-col justify-between transition-colors bg-white ${isOn && !isOffline ? 'border-blue-300 shadow-sm ring-1 ring-blue-100' : 'border-slate-200'} ${isOffline ? 'opacity-60 grayscale' : ''}`}>
+                            <div className="flex justify-between items-start mb-3">
+                              <div className={`p-2 rounded-lg ${isOn && !isOffline ? 'bg-blue-600 text-white shadow-sm' : 'bg-slate-100 text-slate-500'}`}>
+                                {getDeviceIcon(device.device_type)}
+                              </div>
+                              <button 
+                                onClick={() => onToggleDevice(device.node_id, isOn)} 
+                                disabled={isOffline}
+                                className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed' : ''}`}
+                              >
+                                <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
+                              </button>
+                            </div>
+                            <div>
+                              <p className="font-semibold text-slate-800 text-sm truncate">{device.device_name || device.node_id}</p>
+                              <div className="flex justify-between items-center mt-1">
+                                <span className="text-xs text-slate-400 font-mono">{device.node_id.substring(0,8)}</span>
+                                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOn && !isOffline ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
+                                  {isOffline ? 'OFFLINE' : isOn ? 'ON' : 'OFF'}
+                                </span>
+                              </div>
+                            </div>
                           </div>
-                          <button 
-                            onClick={() => onToggleDevice(device.node_id, isOn)} disabled={isOffline}
-                            className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed' : ''}`}
-                          >
-                            <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
-                          </button>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-800 text-sm truncate">{device.device_name || device.node_id}</p>
-                          <div className="flex justify-between items-center mt-1">
-                            <span className="text-xs text-slate-400 font-mono">{device.node_id.substring(0,8)}</span>
-                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${isOn && !isOffline ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-600'}`}>
-                              {isOffline ? 'OFFLINE' : isOn ? 'ON' : 'OFF'}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    );
-                  })}
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
@@ -321,26 +348,36 @@ export default function DashboardTab({
         <div className="lg:col-span-1 flex flex-col gap-4 h-120">
           
           {/* SYSTEM ALERTS */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col shrink-0 h-36">
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col shrink-0 min-h-36"> {/* ปรับ min-h ให้สูงขึ้นนิดนึง */}
             <h3 className="text-base font-semibold text-slate-800 mb-2">System Alerts</h3>
-            <div className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-3 
-              ${offlineGatewaysCount > 0 ? 'border-red-500 bg-red-50' : offlineCount > 0 ? 'border-orange-200 bg-orange-50/50' : 'border-slate-100'}`}
+            <div className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-4 
+              ${offlineGatewaysCount > 0 ? 'border-red-500 bg-red-50' : offlineCount > 0 ? 'border-orange-300 bg-orange-50/50' : 'border-emerald-200 bg-emerald-50/50'}`}
             >
               {offlineGatewaysCount > 0 ? (
                 <div className="text-center w-full">
                   <ServerCrash className="mx-auto text-red-600 mb-1 animate-pulse" size={24} />
                   <p className="text-xs font-bold text-red-700">CRITICAL ERROR</p>
-                  <p className="text-[11px] font-semibold text-red-600">{offlineGatewaysCount} Gateway(s) Offline</p>
+                  <p className="text-[11px] font-semibold text-red-600 mb-1">{offlineGatewaysCount} Gateway(s) Offline</p>
+                  {/* แสดงรายการ Gateway ที่ออฟไลน์ */}
+                  <div className="text-[10px] text-red-500 font-mono bg-white/60 rounded px-2 py-1 mt-1 inline-block">
+                    {offlineGateways.join(', ')}
+                  </div>
                 </div>
               ) : offlineCount > 0 ? (
                 <div className="text-center w-full">
                   <ServerCrash className="mx-auto text-orange-500 mb-1" size={24} />
-                  <p className="text-xs font-semibold text-orange-700">{offlineCount} Device(s) Offline</p>
+                  <p className="text-xs font-bold text-orange-700">{offlineCount} Device(s) Offline</p>
+                  {/* แสดงรายการ Device ที่ออฟไลน์ (สูงสุด 3 ตัว) */}
+                  <div className="text-[10px] text-orange-600 font-mono bg-white/60 rounded px-2 py-1 mt-1 inline-block text-left max-w-full truncate">
+                    {offlineNodes.slice(0, 3).join(', ')}
+                    {offlineNodes.length > 3 ? ` +${offlineNodes.length - 3} more` : ''}
+                  </div>
                 </div>
               ) : (
                 <div className="text-center">
-                  <CheckCircle className="mx-auto text-emerald-400 mb-1" size={24} />
-                  <p className="text-xs font-medium text-emerald-600">No critical issues</p>
+                  <CheckCircle className="mx-auto text-emerald-500 mb-1" size={24} />
+                  <p className="text-xs font-bold text-emerald-700">System Healthy</p>
+                  <p className="text-[10px] font-medium text-emerald-600 mt-0.5">All devices are online.</p>
                 </div>
               )}
             </div>
