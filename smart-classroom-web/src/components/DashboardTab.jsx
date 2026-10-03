@@ -88,13 +88,20 @@ export default function DashboardTab({
     fetch(`${API_BASE_URL}/logs?limit=30`)
       .then(res => res.json())
       .then(data => {
-        const formattedLogs = data.map(log => ({
-          id: log.id,
-          time: new Date(log.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-          source: log.source,
-          type: log.log_type,
-          msg: log.message
-        }));
+        const formattedLogs = data.map(log => {
+          const logDate = new Date(log.timestamp);
+          const today = new Date();
+          const isToday = logDate.toDateString() === today.toDateString();
+          const dateStr = isToday ? 'Today' : logDate.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+          const timeStr = logDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+          return {
+            id: log.id,
+            time: `${dateStr}, ${timeStr}`,
+            source: log.source,
+            type: log.log_type,
+            msg: log.message
+          };
+        });
         setSystemLogs(formattedLogs);
       }).catch(() => {});
   }, [activeGraphNode, timeRange]);
