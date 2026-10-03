@@ -7,6 +7,7 @@ import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 import uvicorn
 
 # --- Import Database Tools & Shared Variables ---
@@ -50,27 +51,40 @@ def monitor_node_health():
     try:
         current_time = datetime.utcnow()
         nodes = db.query(Node).filter(Node.status == "approved").all()
+        if not nodes:
+            return
+        latest_tels = db.query(
+            Telemetry.node_id,
+            func.max(Telemetry.timestamp).label('latest_time')
+        ).group_by(Telemetry.node_id).all()
+        latest_time_map = {row.node_id: row.latest_time for row in latest_tels}
         for node in nodes:
-            latest_tel = db.query(Telemetry).filter(Telemetry.node_id == node.node_id).order_by(Telemetry.telemetry_id.desc()).first()
             is_online = False
-            if latest_tel and latest_tel.timestamp:
+            latest_timestamp = latest_time_map.get(node.node_id)
+            caps = node.capabilities if isinstance(node.capabilities, dict) else (json.loads(node.capabilities) if isinstance(node.capabilities, str) else {})
+            if isinstance(caps, str): 
+                try: caps = json.loads(caps)
+                except: caps = {}
+            tel_interval = caps.get("telemetry_interval", 10)
+            timeout_threshold = max(45, tel_interval * 3)
+            if latest_timestamp:
                 try:
-                    time_str = latest_tel.timestamp.replace("Z", "")
-                    tel_time = datetime.fromisoformat(time_str) if isinstance(latest_tel.timestamp, str) else latest_tel.timestamp.replace(tzinfo=None)
-                    if (current_time - tel_time).total_seconds() <= 15:
+                    time_str = latest_timestamp.replace("Z", "")
+                    tel_time = datetime.fromisoformat(time_str) if isinstance(latest_timestamp, str) else latest_timestamp.replace(tzinfo=None)
+                    if (current_time - tel_time).total_seconds() <= timeout_threshold:
                         is_online = True
-                except Exception: pass
+                except Exception: 
+                    pass
             gw_status = mqtt_shared.gateway_statuses.get(node.gateway_id, "offline")
             if gw_status != "online":
                 is_online = False
             old_state = node_online_states.get(node.node_id)
             if old_state is True and not is_online:
-                db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Node {node.node_id} went OFFLINE (Timeout)"))
-                db.commit()
+                db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Node {node.node_id} went OFFLINE (Timeout > {timeout_threshold}s)"))
             elif old_state is False and is_online:
                 db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {node.node_id} is back ONLINE (Receiving Data)"))
-                db.commit()
             node_online_states[node.node_id] = is_online
+        db.commit()
             
     except Exception as e:
         pass
@@ -240,7 +254,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=start_mqtt, daemon=True).start()
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_schedules_and_trigger, 'cron', minute='*')
-    scheduler.add_job(monitor_node_health, 'interval', seconds=15)
+    scheduler.add_job(monitor_node_health, 'interval', seconds=30)
     scheduler.start()
     yield 
     scheduler.shutdown()
