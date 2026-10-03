@@ -17,6 +17,8 @@ import mqtt_shared
 # --- Import Routers ---
 from routers import rooms, devices, gateways, automation
 
+node_online_states = {}
+
 # =========================================================
 # 1. HELPER FUNCTIONS & SCHEDULER
 # =========================================================
@@ -42,6 +44,38 @@ def trigger_room_devices(db: Session, room_id: str, action: str, device_type_fil
             
     if devices_in_room:
         db.commit()
+
+def monitor_node_health():
+    db = SessionLocal()
+    try:
+        current_time = datetime.utcnow()
+        nodes = db.query(Node).filter(Node.status == "approved").all()
+        for node in nodes:
+            latest_tel = db.query(Telemetry).filter(Telemetry.node_id == node.node_id).order_by(Telemetry.telemetry_id.desc()).first()
+            is_online = False
+            if latest_tel and latest_tel.timestamp:
+                try:
+                    time_str = latest_tel.timestamp.replace("Z", "")
+                    tel_time = datetime.fromisoformat(time_str) if isinstance(latest_tel.timestamp, str) else latest_tel.timestamp.replace(tzinfo=None)
+                    if (current_time - tel_time).total_seconds() <= 15:
+                        is_online = True
+                except Exception: pass
+            gw_status = mqtt_shared.gateway_statuses.get(node.gateway_id, "offline")
+            if gw_status != "online":
+                is_online = False
+            old_state = node_online_states.get(node.node_id)
+            if old_state is True and not is_online:
+                db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Node {node.node_id} went OFFLINE (Timeout)"))
+                db.commit()
+            elif old_state is False and is_online:
+                db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {node.node_id} is back ONLINE (Receiving Data)"))
+                db.commit()
+            node_online_states[node.node_id] = is_online
+            
+    except Exception as e:
+        pass
+    finally:
+        db.close()
 
 def check_schedules_and_trigger():
     db = SessionLocal()
@@ -119,6 +153,7 @@ def on_message(client, userdata, msg):
                     node.room_id, node.gateway_id = room_id, data.get("gateway_id")
                     db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {device_id} booted and came ONLINE"))
                 db.commit()
+                node_online_states[device_id] = True
 
             elif topic.endswith("/telemetry"):
                 device_id = data.get("device_id")
@@ -205,6 +240,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=start_mqtt, daemon=True).start()
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_schedules_and_trigger, 'cron', minute='*')
+    scheduler.add_job(monitor_node_health, 'interval', seconds=15)
     scheduler.start()
     yield 
     scheduler.shutdown()
