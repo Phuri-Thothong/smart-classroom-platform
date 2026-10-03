@@ -10,6 +10,7 @@ export default function DashboardTab({
 }) {
   const [telemetryData, setTelemetryData] = useState([]);
   const [systemLogs, setSystemLogs] = useState([]);
+  const [logFilter, setLogFilter] = useState('ALL');
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
@@ -85,7 +86,7 @@ export default function DashboardTab({
         }).catch(() => {});
     }
 
-    fetch(`${API_BASE_URL}/logs?limit=30`)
+    fetch(`${API_BASE_URL}/logs?limit=100`)
       .then(res => res.json())
       .then(data => {
         const formattedLogs = data.map(log => {
@@ -106,6 +107,11 @@ export default function DashboardTab({
       }).catch(() => {});
   }, [activeGraphNode, timeRange]);
 
+  const filteredLogs = useMemo(() => {
+    if (logFilter === 'ALL') return systemLogs;
+    return systemLogs.filter(log => log.source === logFilter);
+  }, [systemLogs, logFilter]);
+
   useEffect(() => {
     fetchTelemetryAndLogs();
     const interval = setInterval(fetchTelemetryAndLogs, 5000);
@@ -122,10 +128,11 @@ export default function DashboardTab({
   };
 
   const getLogColor = (type, source) => {
-    if (type === 'WARN' || type === 'ERROR') return 'text-red-400';
+    if (type === 'WARN' || type === 'ERROR') return 'text-amber-400';
     if (source === 'SCHEDULE') return 'text-purple-400';
     if (source === 'RULE') return 'text-emerald-400';
     if (source === 'MANUAL') return 'text-blue-400';
+    if (source === 'SYSTEM') return 'text-slate-300 font-bold';
     return 'text-slate-400';
   };
 
@@ -341,17 +348,31 @@ export default function DashboardTab({
 
           {/* SYSTEM ACTIVITY LOG */}
           <div className="bg-slate-900 rounded-xl shadow-sm border border-slate-800 p-4 flex flex-col flex-1 min-h-0 overflow-hidden">
-            <div className="flex items-center gap-2 mb-3 border-b border-slate-700 pb-2 shrink-0">
-              <Terminal size={16} className="text-emerald-400" />
-              <h3 className="text-sm font-semibold text-slate-100">System Activity Log</h3>
+            <div className="flex items-center justify-between mb-3 border-b border-slate-700 pb-2 shrink-0">
+              <div className="flex items-center gap-2">
+                <Terminal size={16} className="text-emerald-400" />
+                <h3 className="text-sm font-semibold text-slate-100">System Activity Log</h3>
+              </div>
+              <select 
+                value={logFilter} 
+                onChange={(e) => setLogFilter(e.target.value)}
+                className="bg-slate-800 text-slate-300 text-[10px] uppercase font-bold border border-slate-700 rounded px-2 py-1 outline-none cursor-pointer hover:border-slate-500 transition-colors"
+              >
+                <option value="ALL">All Logs</option>
+                <option value="MANUAL">Manual Only</option>
+                <option value="RULE">Rules Only</option>
+                <option value="SCHEDULE">Schedules Only</option>
+                <option value="SYSTEM">System Only</option>
+              </select>
             </div>
-            {/* พื้นที่แสดงรายการ Log พร้อม Scrollbar ควบคุมภายในกล่อง */}
+            
+            {/* พื้นที่แสดงรายการ Log */}
             <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-1 min-h-0">
-              {systemLogs.length === 0 ? (
-                <div className="text-xs text-slate-500 text-center mt-4 font-mono">No system activities yet...</div>
+              {filteredLogs.length === 0 ? (
+                <div className="text-xs text-slate-500 text-center mt-4 font-mono">No {logFilter !== 'ALL' ? logFilter : ''} activities found...</div>
               ) : (
-                systemLogs.map(log => (
-                  <div key={log.id} className="text-[11px] font-mono border-l-2 border-slate-700 pl-2.5 py-0.5">
+                filteredLogs.map(log => (
+                  <div key={log.id} className="text-[11px] font-mono border-l-2 border-slate-700 pl-2.5 py-0.5 hover:bg-slate-800/50 transition-colors rounded-r-md">
                     <div className="flex items-center gap-2 mb-0.5">
                       <span className="text-slate-500">{log.time}</span>
                       <span className={`px-1.5 py-0.5 rounded bg-slate-800 font-bold text-[9px] ${getLogColor(log.type, log.source)}`}>

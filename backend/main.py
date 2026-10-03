@@ -100,6 +100,7 @@ def on_message(client, userdata, msg):
                 node = db.query(Node).filter(Node.node_id == device_id).first()
                 if not node:
                     db.add(Node(node_id=device_id, room_id=room_id, gateway_id=data.get("gateway_id"), device_type=data.get("device_type"), device_name=data.get("device_name"), firmware_version=data.get("firmware_version"), capabilities=data.get("capabilities")))
+                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"New device {device_id} ({data.get('device_type')}) detected via {data.get('gateway_id')}"))
                 else:
                     node.room_id, node.gateway_id = room_id, data.get("gateway_id")
                 db.commit()
@@ -116,6 +117,7 @@ def on_message(client, userdata, msg):
 
                 active_rules = db.query(AutomationRule).filter(AutomationRule.sensor_node_id == device_id, AutomationRule.is_active == True).all()
                 sensor_values = data.get("data", {})
+                current_time = datetime.utcnow()
                 for rule in active_rules:
                     if rule.sensor_key in sensor_values:
                         val = sensor_values[rule.sensor_key]
@@ -135,17 +137,38 @@ def on_message(client, userdata, msg):
                             pass
                         
                         if trigger:
-                            client.publish(
-                                mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), 
-                                json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}})
-                            )
-                            print(f"[Rule Engine] Triggered: {device_id} -> {rule.target_node_id} ({rule.action})")
-                            db.add(SystemLog(
-                                source="RULE", 
-                                log_type="ACTION", 
-                                message=f"Rule '{rule.name}' turned {rule.action} {rule.target_node_id}"
-                            ))
-                            db.commit()
+                            target_node = db.query(Node).filter(Node.node_id == rule.target_node_id).first()
+                            if not target_node or target_node.status == "pending":
+                                continue
+                            
+                            is_target_online = False
+                            latest_tel = db.query(Telemetry).filter(Telemetry.node_id == rule.target_node_id).order_by(Telemetry.telemetry_id.desc()).first()
+                            
+                            if latest_tel and latest_tel.timestamp:
+                                try:
+                                    time_str = latest_tel.timestamp.replace("Z", "")
+                                    tel_time = datetime.fromisoformat(time_str) if isinstance(latest_tel.timestamp, str) else latest_tel.timestamp.replace(tzinfo=None)
+                                    if (current_time - tel_time).total_seconds() <= 15:
+                                        is_target_online = True
+                                except Exception:
+                                    pass
+                            
+                            gw_status = mqtt_shared.gateway_statuses.get(target_node.gateway_id, "offline")
+                            if gw_status != "online":
+                                is_target_online = False
+
+                            if is_target_online:
+                                client.publish(
+                                    mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), 
+                                    json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}})
+                                )
+                                print(f"[Rule Engine] Triggered: {device_id} -> {rule.target_node_id} ({rule.action})")
+                                db.add(SystemLog(
+                                    source="RULE", 
+                                    log_type="ACTION", 
+                                    message=f"Rule '{rule.name}' turned {rule.action} {rule.target_node_id}"
+                                ))
+                                db.commit()
         finally:
             db.close() 
     except Exception as e: pass

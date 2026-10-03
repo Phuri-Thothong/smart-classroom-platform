@@ -105,6 +105,7 @@ def delete_device(device_id: str, db: Session = Depends(get_db)):
     if not device: raise HTTPException(status_code=404)
     db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
     db.delete(device)
+    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was deleted by Admin"))
     db.commit()
     return {"message": "Deleted"}
 
