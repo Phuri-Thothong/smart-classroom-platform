@@ -1,3 +1,4 @@
+import os
 import json
 import threading
 from contextlib import asynccontextmanager
@@ -17,6 +18,11 @@ import mqtt_shared
 
 # --- Import Routers ---
 from routers import rooms, devices, gateways, automation
+
+# --- โหลดค่า Configuration จาก .env ---
+PRE_COOL_MINUTES = int(os.getenv("PRE_COOL_MINUTES", 15))
+NODE_TIMEOUT_MIN_GRACE = int(os.getenv("NODE_TIMEOUT_MIN_GRACE", 45))
+NODE_MONITOR_INTERVAL = int(os.getenv("NODE_MONITOR_INTERVAL", 30))
 
 node_online_states = {}
 
@@ -66,7 +72,7 @@ def monitor_node_health():
                 try: caps = json.loads(caps)
                 except: caps = {}
             tel_interval = caps.get("telemetry_interval", 10)
-            timeout_threshold = max(45, tel_interval * 3)
+            timeout_threshold = max(NODE_TIMEOUT_MIN_GRACE, tel_interval * 3)
             if latest_timestamp:
                 try:
                     time_str = latest_timestamp.replace("Z", "")
@@ -102,9 +108,9 @@ def check_schedules_and_trigger():
         
         for cls in todays_classes:
             start_datetime = datetime.combine(now.date(), cls.start_time)
-            pre_start_time = (start_datetime - timedelta(minutes=15)).time()
+            pre_start_time = (start_datetime - timedelta(minutes=PRE_COOL_MINUTES)).time()
             if current_time_obj.hour == pre_start_time.hour and current_time_obj.minute == pre_start_time.minute:
-                print(f"[Scheduler] 15-Min Pre-cool for {cls.subject_code} in {cls.room_id}")
+                print(f"[Scheduler] {PRE_COOL_MINUTES}-Min Pre-cool for {cls.subject_code} in {cls.room_id}")
                 trigger_room_devices(db, cls.room_id, "ON", ["air_control"])
 
             if current_time_obj.hour == cls.start_time.hour and current_time_obj.minute == cls.start_time.minute:
@@ -254,7 +260,7 @@ async def lifespan(app: FastAPI):
     threading.Thread(target=start_mqtt, daemon=True).start()
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_schedules_and_trigger, 'cron', minute='*')
-    scheduler.add_job(monitor_node_health, 'interval', seconds=30)
+    scheduler.add_job(monitor_node_health, 'interval', seconds=NODE_MONITOR_INTERVAL)
     scheduler.start()
     yield 
     scheduler.shutdown()
