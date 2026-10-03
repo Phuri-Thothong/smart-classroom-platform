@@ -82,7 +82,21 @@ def on_message(client, userdata, msg):
     if "/gateways/" in topic and topic.endswith("/status"):
         try:
             gateway_id = topic.split("/")[-2]
-            mqtt_shared.gateway_statuses[gateway_id] = json.loads(payload).get("status", "offline")
+            new_status = json.loads(payload).get("status", "offline")
+            old_status = mqtt_shared.gateway_statuses.get(gateway_id)
+            if old_status != new_status:
+                db = SessionLocal()
+                try:
+                    log_type = "INFO" if new_status == "online" else "ERROR"
+                    db.add(SystemLog(
+                        source="SYSTEM", 
+                        log_type=log_type, 
+                        message=f"Gateway {gateway_id} is now {new_status.upper()}"
+                    ))
+                    db.commit()
+                finally:
+                    db.close()
+            mqtt_shared.gateway_statuses[gateway_id] = new_status
         except Exception: pass
         return
 
@@ -103,6 +117,7 @@ def on_message(client, userdata, msg):
                     db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"New device {device_id} ({data.get('device_type')}) detected via {data.get('gateway_id')}"))
                 else:
                     node.room_id, node.gateway_id = room_id, data.get("gateway_id")
+                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {device_id} booted and came ONLINE"))
                 db.commit()
 
             elif topic.endswith("/telemetry"):
