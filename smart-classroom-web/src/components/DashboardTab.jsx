@@ -5,11 +5,12 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 export default function DashboardTab({
-  devices, roomsList, gatewayStatus, deviceStatus,
+  devices, roomsList, gatewayStatus,
   onToggleDevice, onDeleteDevice, onOpenAddRoom, onOpenManageRooms, onOpenDeviceSetup
 }) {
   const [telemetryData, setTelemetryData] = useState([]);
   const [systemLogs, setSystemLogs] = useState([]);
+  const [liveDevices, setLiveDevices] = useState(devices);
   const [logFilter, setLogFilter] = useState('ALL');
   const [selectedGraphNode, setSelectedGraphNode] = useState('');
   const [selectedRoom, setSelectedRoom] = useState('All');
@@ -19,7 +20,7 @@ export default function DashboardTab({
   const uniqueRooms = useMemo(() => ['All', ...new Set(roomsList.map(r => r.room_id))], [roomsList]);
   
   const filteredDevices = useMemo(() => {
-    const result = devices.filter(d => {
+    const result = liveDevices.filter(d => {
       const matchRoom = selectedRoom === 'All' || d.room_id === selectedRoom;  
       let matchType = true;
       if (selectedType !== 'All') {
@@ -37,7 +38,7 @@ export default function DashboardTab({
       }
       return roomA.localeCompare(roomB);
     });
-  }, [devices, selectedRoom, selectedType]);
+  }, [liveDevices, selectedRoom, selectedType]);
 
   const activeControllers = useMemo(() => {
     return filteredDevices.filter(d => d.status !== 'pending' && (d.device_type === 'lighting' || d.device_type === 'air_control'));
@@ -116,6 +117,10 @@ export default function DashboardTab({
         });
         setSystemLogs(formattedLogs);
       }).catch(() => {});
+  fetch(`${API_BASE_URL}/devices`)
+      .then(res => res.json())
+      .then(data => setLiveDevices(data))
+      .catch(() => {});
   }, [activeGraphNode, timeRange]);
 
   const filteredLogs = useMemo(() => {
@@ -145,6 +150,13 @@ export default function DashboardTab({
     if (source === 'MANUAL') return 'text-blue-400';
     if (source === 'SYSTEM') return 'text-slate-300 font-bold';
     return 'text-slate-400';
+  };
+
+  const handleToggle = (nodeId, currentIsOn) => {
+    setLiveDevices(prev => prev.map(d => 
+      d.node_id === nodeId ? { ...d, device_state: currentIsOn ? 'OFF' : 'ON' } : d
+    ));
+    onToggleDevice(nodeId, currentIsOn);
   };
 
   return (
@@ -181,9 +193,7 @@ export default function DashboardTab({
                   <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100 p-4 pt-0' : 'max-h-0 opacity-0 overflow-hidden'}`}>
                     <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
                       {devicesInRoom.map(device => {
-                        const isOn = deviceStatus[device.node_id] !== undefined 
-                          ? deviceStatus[device.node_id] 
-                          : (device.device_state === 'ON');
+                        const isOn = device.device_state === 'ON';
                         const isOffline = device.status === 'offline';
                         
                         return (
@@ -193,7 +203,7 @@ export default function DashboardTab({
                                 {getDeviceIcon(device.device_type)}
                               </div>
                               <button 
-                                onClick={() => onToggleDevice(device.node_id, isOn)} 
+                                onClick={() => handleToggle(device.node_id, isOn)} 
                                 disabled={isOffline}
                                 className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed' : ''}`}
                               >
