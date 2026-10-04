@@ -251,23 +251,34 @@ def on_message(client, userdata, msg):
                                         is_target_online = True
                                 except Exception:
                                     pass
-                            
+
                             gw_status = mqtt_shared.gateway_statuses.get(target_node.gateway_id, "offline")
                             if gw_status != "online":
                                 is_target_online = False
-
+                                
                             if is_target_online:
-                                client.publish(
-                                    mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), 
-                                    json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}})
-                                )
-                                print(f"[Rule Engine] Triggered: {device_id} -> {rule.target_node_id} ({rule.action})")
-                                db.add(SystemLog(
-                                    source="RULE", 
-                                    log_type="ACTION", 
-                                    message=f"Rule '{rule.name}' turned {rule.action} {rule.target_node_id}"
-                                ))
-                                db.commit()
+                                # --- เพิ่มระบบป้องกันการสั่งงานซ้ำซ้อน ---
+                                target_current_state = "OFF"
+                                if latest_tel and latest_tel.data:
+                                    t_data = latest_tel.data
+                                    if isinstance(t_data, str):
+                                        try: t_data = json.loads(t_data)
+                                        except: t_data = {}
+                                    if isinstance(t_data, dict):
+                                        target_current_state = t_data.get("status", "OFF")
+                                # เช็กว่าสถานะใหม่ตรงกับสถานะเดิมหรือไม่ ถ้าไม่ตรงถึงจะสั่ง Publish
+                                if str(target_current_state).upper() != str(rule.action).upper():
+                                    client.publish(
+                                        mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), 
+                                        json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}})
+                                    )
+                                    print(f"[Rule Engine] Triggered: {device_id} -> {rule.target_node_id} ({rule.action})")
+                                    db.add(SystemLog(
+                                        source="RULE", 
+                                        log_type="ACTION", 
+                                        message=f"Rule '{rule.name}' turned {rule.action} {rule.target_node_id}"
+                                    ))
+                                    db.commit()
             elif topic.endswith("/log"):
                 gateway_id = topic.split("/")[-2]
                 level = data.get("level", "INFO").upper()
