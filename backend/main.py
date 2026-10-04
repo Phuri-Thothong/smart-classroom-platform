@@ -1,3 +1,4 @@
+import logging
 import os
 import json
 import threading
@@ -25,6 +26,21 @@ NODE_TIMEOUT_MIN_GRACE = int(os.getenv("NODE_TIMEOUT_MIN_GRACE", 45))
 NODE_MONITOR_INTERVAL = int(os.getenv("NODE_MONITOR_INTERVAL", 30))
 
 node_online_states = {}
+
+# --- ตั้งค่า Logging เพื่อเขียน Log จากฮาร์ดแวร์ลงไฟล์ gateway_flow.log ---
+log_file_path = os.path.join(os.path.dirname(__file__), "..", "simulation", "virtual_gateway", "gateway_flow.log")
+os.makedirs(os.path.dirname(log_file_path), exist_ok=True)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s.%(msecs)03d | %(levelname)-7s | %(message)s',
+    datefmt='%H:%M:%S',
+    handlers=[
+        logging.FileHandler(log_file_path, mode='a', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+hw_logger = logging.getLogger("HardwareGateway")
+logging.getLogger("apscheduler").setLevel(logging.WARNING)
 
 # =========================================================
 # 1. HELPER FUNCTIONS & SCHEDULER
@@ -133,7 +149,12 @@ def check_schedules_and_trigger():
 def on_connect(client, userdata, flags, reason_code, properties):
     if reason_code == 0:
         print("[Platform] Connected to MQTT Broker: Success")
-        client.subscribe([(mqtt_shared.MQTT_METADATA_TOPIC, 0), (mqtt_shared.MQTT_TELEMETRY_TOPIC, 0), (f"{mqtt_shared.PREFIX}/gateways/+/status", 0)])
+        client.subscribe([
+            (mqtt_shared.MQTT_METADATA_TOPIC, 0), 
+            (mqtt_shared.MQTT_TELEMETRY_TOPIC, 0), 
+            (f"{mqtt_shared.PREFIX}/gateways/+/status", 0),
+            (f"{mqtt_shared.PREFIX}/gateways/+/log", 0)
+        ])
 
 def on_message(client, userdata, msg):
     topic, payload = msg.topic, msg.payload.decode()
@@ -247,6 +268,14 @@ def on_message(client, userdata, msg):
                                     message=f"Rule '{rule.name}' turned {rule.action} {rule.target_node_id}"
                                 ))
                                 db.commit()
+            elif topic.endswith("/log"):
+                gateway_id = topic.split("/")[-2]
+                level = data.get("level", "INFO").upper()
+                msg = data.get("msg", "")
+                if level == "WARN" or level == "ERROR":
+                    hw_logger.warning(f"[{gateway_id}] {msg}")
+                else:
+                    hw_logger.info(f"[{gateway_id}] {msg}")
         finally:
             db.close() 
     except Exception as e: pass
