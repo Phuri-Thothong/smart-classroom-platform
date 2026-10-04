@@ -77,7 +77,11 @@ def monitor_node_health():
                 try:
                     time_str = latest_timestamp.replace("Z", "")
                     tel_time = datetime.fromisoformat(time_str) if isinstance(latest_timestamp, str) else latest_timestamp.replace(tzinfo=None)
-                    if (current_time - tel_time).total_seconds() <= timeout_threshold:
+                    diff_utc = abs((datetime.utcnow() - tel_time).total_seconds())
+                    diff_local = abs((datetime.now() - tel_time).total_seconds())
+                    actual_diff = min(diff_utc, diff_local)
+                    
+                    if actual_diff <= timeout_threshold:
                         is_online = True
                 except Exception: 
                     pass
@@ -218,7 +222,11 @@ def on_message(client, userdata, msg):
                                 try:
                                     time_str = latest_tel.timestamp.replace("Z", "")
                                     tel_time = datetime.fromisoformat(time_str) if isinstance(latest_tel.timestamp, str) else latest_tel.timestamp.replace(tzinfo=None)
-                                    if (current_time - tel_time).total_seconds() <= 15:
+                                    diff_utc = abs((datetime.utcnow() - tel_time).total_seconds())
+                                    diff_local = abs((datetime.now() - tel_time).total_seconds())
+                                    actual_diff = min(diff_utc, diff_local)
+                                    
+                                    if actual_diff <= 45:
                                         is_target_online = True
                                 except Exception:
                                     pass
