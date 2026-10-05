@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight, Terminal, ChevronDown } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 
@@ -16,6 +16,7 @@ export default function DashboardTab({
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
   const [timeRange, setTimeRange] = useState('20');
+  const lockedNodesRef = useRef(new Set());
   
   const uniqueRooms = useMemo(() => ['All', ...new Set(roomsList.map(r => r.room_id))], [roomsList]);
   
@@ -119,7 +120,20 @@ export default function DashboardTab({
       }).catch(() => {});
   fetch(`${API_BASE_URL}/devices`)
       .then(res => res.json())
-      .then(data => setLiveDevices(data))
+      .then(data => {
+        // ผสานข้อมูล API โดยรักษาค่าของปุ่มที่ถูกล็อกไว้
+        setLiveDevices(prevDevices => {
+          return data.map(apiDevice => {
+            // ถ้า Node นี้เพิ่งถูกกด (ติดล็อก) ให้ใช้ค่าจากหน้าเว็บปัจจุบัน (prevDevices) ไปก่อน
+            if (lockedNodesRef.current.has(apiDevice.node_id)) {
+              const existing = prevDevices.find(d => d.node_id === apiDevice.node_id);
+              return existing ? { ...apiDevice, device_state: existing.device_state } : apiDevice;
+            }
+            // ถ้าไม่ติดล็อก ให้ใช้ข้อมูลจริงจากฐานข้อมูล
+            return apiDevice; 
+          });
+        });
+      })
       .catch(() => {});
   }, [activeGraphNode, timeRange]);
 
@@ -153,10 +167,14 @@ export default function DashboardTab({
   };
 
   const handleToggle = (nodeId, currentIsOn) => {
+    lockedNodesRef.current.add(nodeId);
     setLiveDevices(prev => prev.map(d => 
       d.node_id === nodeId ? { ...d, device_state: currentIsOn ? 'OFF' : 'ON' } : d
     ));
     onToggleDevice(nodeId, currentIsOn);
+    setTimeout(() => {
+      lockedNodesRef.current.delete(nodeId);
+    }, 3000);
   };
 
   return (
