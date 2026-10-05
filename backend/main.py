@@ -79,7 +79,7 @@ def monitor_node_health():
             Telemetry.node_id,
             func.max(Telemetry.timestamp).label('latest_time')
         ).group_by(Telemetry.node_id).all()
-        latest_time_map = {row.node_id: row.latest_time for row in latest_tels}
+        latest_time_map = {row.node_id: row.latest_time for row in latest_tels} 
         for node in nodes:
             is_online = False
             latest_timestamp = latest_time_map.get(node.node_id)
@@ -88,7 +88,7 @@ def monitor_node_health():
                 try: caps = json.loads(caps)
                 except: caps = {}
             tel_interval = caps.get("telemetry_interval", 10)
-            timeout_threshold = max(NODE_TIMEOUT_MIN_GRACE, tel_interval * 3)
+            timeout_threshold = max(NODE_TIMEOUT_MIN_GRACE, tel_interval * 3)            
             if latest_timestamp:
                 try:
                     time_str = latest_timestamp.replace("Z", "")
@@ -102,13 +102,13 @@ def monitor_node_health():
                 except Exception: 
                     pass
             gw_status = mqtt_shared.gateway_statuses.get(node.gateway_id, "offline")
-            if gw_status != "online":
+            if not node.gateway_id or gw_status != "online":
                 is_online = False
             old_state = node_online_states.get(node.node_id)
             if old_state is True and not is_online:
-                db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Node {node.node_id} went OFFLINE (Timeout > {timeout_threshold}s)"))
+                db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Node {node.node_id} went OFFLINE (Gateway {node.gateway_id} is {gw_status.upper()} or Timeout)"))
             elif old_state is False and is_online:
-                db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {node.node_id} is back ONLINE (Receiving Data)"))
+                db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {node.node_id} is back ONLINE (Receiving Data)"))           
             node_online_states[node.node_id] = is_online
         db.commit()
             
