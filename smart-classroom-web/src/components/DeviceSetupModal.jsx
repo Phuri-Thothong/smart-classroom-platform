@@ -37,6 +37,9 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
 
   if (!isOpen || !device) return null;
 
+  // --- ตรวจสอบว่าเป็น Virtual Node หรือไม่ ---
+  const isVirtualNode = device.firmware_version?.includes('GW') || device.node_id?.includes('-L') || device.node_id?.includes('-A');
+
   const handleSave = (e) => {
     e.preventDefault();
     const configData = {
@@ -90,10 +93,14 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">Assign Room</label>
             <select required value={formData.room_id} onChange={e => setFormData({...formData, room_id: e.target.value})} 
-              className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white">
+              disabled={isVirtualNode}
+              className={`w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${isVirtualNode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}>
               <option value="">Select Room...</option>
               {roomsList.map(r => <option key={r.room_id} value={r.room_id}>Room {r.room_name || r.room_id}</option>)}
             </select>
+            {isVirtualNode && (
+              <p className="text-[11px] text-slate-400 mt-1">Virtual Node room is inherited from its physical Gateway and cannot be changed independently.</p>
+            )}
           </div>
 
           <div className="grid grid-cols-2 gap-4">
