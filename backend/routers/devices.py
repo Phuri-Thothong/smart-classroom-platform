@@ -16,7 +16,7 @@ router = APIRouter(prefix="/devices", tags=["Devices"])
 
 @router.get("")
 def get_devices(db: Session = Depends(get_db)):
-    nodes = db.query(Node).all()
+    nodes = db.query(Node).filter(Node.status != "rejected").all()
     result, current_time = [], datetime.utcnow()
     for node in nodes:
         caps = node.capabilities if isinstance(node.capabilities, dict) else (json.loads(node.capabilities) if isinstance(node.capabilities, str) else {})
@@ -121,10 +121,10 @@ def delete_device(device_id: str, db: Session = Depends(get_db)):
     device = db.query(Node).filter(Node.node_id == device_id).first()
     if not device: raise HTTPException(status_code=404)
     db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
-    db.delete(device)
-    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was deleted by Admin"))
+    device.status = "rejected"
+    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was rejected/deleted and added to blocklist"))
     db.commit()
-    return {"message": "Deleted"}
+    return {"message": "Device rejected and moved to blocklist"}
 
 @router.get("/{device_id}/telemetry")
 def get_telemetry_api(device_id: str, limit: int = 10, db: Session = Depends(get_db)):
@@ -138,4 +138,31 @@ async def control_device_api(device_id: str, request: Request, db: Session = Dep
         mqtt_shared.mqtt_client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id), json.dumps({"type": "command", "payload": {"device_id": device_id, "action": action}}))
         db.add(SystemLog(source="MANUAL", log_type="ACTION", message=f"Admin turned {action} {device_id}"))
         db.commit()
+    return {"status": "success"}
+
+@router.post("/{device_id}/reject")
+def reject_device_api(device_id: str, db: Session = Depends(get_db)):
+    device = db.query(Node).filter(Node.node_id == device_id).first()
+    if not device: 
+        raise HTTPException(status_code=404)
+    device.status = "rejected"
+    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was rejected and moved to blocklist"))
+    db.commit()
+    return {"status": "success"}
+
+@router.post("/{device_id}/factory-reset")
+def factory_reset_device_api(device_id: str, db: Session = Depends(get_db)):
+    device = db.query(Node).filter(Node.node_id == device_id).first()
+    if not device: 
+        raise HTTPException(status_code=404)
+    if mqtt_shared.mqtt_client:
+        topic = mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id)
+        mqtt_shared.mqtt_client.publish(
+            topic, 
+            json.dumps({"type": "command", "payload": {"device_id": device_id, "action": "RESET"}})
+        )
+    db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
+    db.delete(device)
+    db.add(SystemLog(source="MANUAL", log_type="WARN", message=f"Admin triggered Factory Reset for {device_id}"))
+    db.commit()
     return {"status": "success"}

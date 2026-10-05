@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight, Terminal, ChevronDown } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight, Terminal, ChevronDown, X, RotateCcw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import ConfirmModal from './ConfirmModal';
+import { useToast } from '../contexts/ToastContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
@@ -17,6 +19,18 @@ export default function DashboardTab({
   const [selectedType, setSelectedType] = useState('All');
   const [timeRange, setTimeRange] = useState('20');
   const lockedNodesRef = useRef(new Set());
+
+  // --- เพิ่ม State สำหรับควบคุม ConfirmModal ---
+  const [modalState, setModalState] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'danger',
+    confirmText: 'Confirm',
+    onConfirm: () => {}
+  });
+
+  const { showToast } = useToast();
   
   const uniqueRooms = useMemo(() => ['All', ...new Set(roomsList.map(r => r.room_id))], [roomsList]);
   
@@ -118,18 +132,16 @@ export default function DashboardTab({
         });
         setSystemLogs(formattedLogs);
       }).catch(() => {});
-  fetch(`${API_BASE_URL}/devices`)
+
+    fetch(`${API_BASE_URL}/devices`)
       .then(res => res.json())
       .then(data => {
-        // ผสานข้อมูล API โดยรักษาค่าของปุ่มที่ถูกล็อกไว้
         setLiveDevices(prevDevices => {
           return data.map(apiDevice => {
-            // ถ้า Node นี้เพิ่งถูกกด (ติดล็อก) ให้ใช้ค่าจากหน้าเว็บปัจจุบัน (prevDevices) ไปก่อน
             if (lockedNodesRef.current.has(apiDevice.node_id)) {
               const existing = prevDevices.find(d => d.node_id === apiDevice.node_id);
               return existing ? { ...apiDevice, device_state: existing.device_state } : apiDevice;
             }
-            // ถ้าไม่ติดล็อก ให้ใช้ข้อมูลจริงจากฐานข้อมูล
             return apiDevice; 
           });
         });
@@ -177,6 +189,45 @@ export default function DashboardTab({
     }, 3000);
   };
 
+  // --- ฟังก์ชันเรียกเปิด ConfirmModal แทน window.confirm ---
+  const handleReject = (deviceId) => {
+    setModalState({
+      isOpen: true,
+      title: 'Reject Device',
+      message: `Are you sure you want to REJECT ${deviceId}?\nThis will block the device from the system.`,
+      type: 'danger',
+      confirmText: 'Yes, Reject',
+      onConfirm: () => {
+        fetch(`${API_BASE_URL}/devices/${deviceId}/reject`, { method: 'POST' })
+          .then(() => {
+            fetchTelemetryAndLogs();
+            showToast(`Device ${deviceId} has been rejected.`, 'success');
+          })
+          .catch(() => showToast('Failed to reject device', 'error'));
+        setModalState(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
+  const handleFactoryReset = (deviceId) => {
+    setModalState({
+      isOpen: true,
+      title: 'Factory Reset Hardware',
+      message: `WARNING: This will wipe the hardware memory of ${deviceId} and remove it from the platform. Continue?`,
+      type: 'warning',
+      confirmText: 'Yes, Reset',
+      onConfirm: () => {
+        fetch(`${API_BASE_URL}/devices/${deviceId}/factory-reset`, { method: 'POST' })
+          .then(() => {
+            fetchTelemetryAndLogs();
+            showToast(`Factory reset command sent to ${deviceId}`, 'success');
+          })
+          .catch(() => showToast('Failed to execute factory reset', 'error'));
+        setModalState(prev => ({ ...prev, isOpen: false }));
+      }
+    });
+  };
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       
@@ -195,7 +246,6 @@ export default function DashboardTab({
               const isExpanded = expandedRooms.includes(room);
               return (
                 <div key={room} className="bg-slate-50/50 rounded-xl border border-slate-100 overflow-hidden">
-                  {/* Header สำหรับกดพับ/กาง */}
                   <div 
                     onClick={() => toggleRoomCollapse(room)}
                     className="p-4 flex items-center justify-between cursor-pointer hover:bg-slate-100/50 transition-colors"
@@ -207,7 +257,6 @@ export default function DashboardTab({
                     <ChevronDown size={18} className={`text-slate-400 transition-transform duration-300 ${isExpanded ? 'rotate-180' : ''}`} />
                   </div>
                   
-                  {/* ส่วนแสดงอุปกรณ์ */}
                   <div className={`transition-all duration-300 ease-in-out ${isExpanded ? 'max-h-[2000px] opacity-100 p-4 pt-0' : 'max-h-0 opacity-0 overflow-hidden'}`}>
                     <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-4">
                       {devicesInRoom.map(device => {
@@ -249,10 +298,10 @@ export default function DashboardTab({
         </div>
       )}
 
-      {/* ---------------- 2. MIDDLE LAYOUT (LOCKED HEIGHT GRID) ---------------- */}
+      {/* ---------------- 2. MIDDLE LAYOUT ---------------- */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:h-120">
         
-        {/* LEFT: Device Management (Spans 2/3) */}
+        {/* LEFT: Device Management */}
         <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden flex flex-col h-120">
           <div className="p-5 border-b border-slate-100 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shrink-0">
             <div className="flex items-center space-x-3">
@@ -351,15 +400,25 @@ export default function DashboardTab({
                             </span>
                           )}
                         </td>
-                        <td className="p-4 text-right flex justify-end items-center h-full">
+                        <td className="p-4 text-right flex justify-end items-center h-full gap-2">
                           {isPending ? (
-                            <button onClick={() => onOpenDeviceSetup(device)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
-                              <CheckCircle size={14} className="mr-1.5" /> Approve Setup
-                            </button>
+                            <>
+                              <button onClick={() => handleReject(device.node_id)} className="flex items-center px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded shadow-sm transition-colors border border-red-100" title="Reject Device">
+                                <X size={14} className="mr-1" /> Reject
+                              </button>
+                              <button onClick={() => onOpenDeviceSetup(device)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
+                                <CheckCircle size={14} className="mr-1.5" /> Approve
+                              </button>
+                            </>
                           ) : (
                             <div className="flex space-x-1">
-                              <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 rounded-md transition-colors" title="Settings"><Settings size={16} /></button>
-                              <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-red-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Delete"><Trash2 size={16} /></button>
+                              <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors" title="Settings"><Settings size={16} /></button>
+                              
+                              <button onClick={() => handleFactoryReset(device.node_id)} disabled={isOffline} className={`p-1.5 rounded-md transition-colors ${isOffline ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-orange-50 hover:text-orange-600'}`} title="Factory Reset (Wipe Hardware)">
+                                <RotateCcw size={16} />
+                              </button>
+                              
+                              <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Soft Delete"><Trash2 size={16} /></button>
                             </div>
                           )}
                         </td>
@@ -372,11 +431,11 @@ export default function DashboardTab({
           </div>
         </div>
 
-        {/* RIGHT: Alerts & Logs (Spans 1/3) */}
+        {/* RIGHT: Alerts & Logs */}
         <div className="lg:col-span-1 flex flex-col gap-4 h-120">
           
           {/* SYSTEM ALERTS */}
-          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col shrink-0 min-h-36"> {/* ปรับ min-h ให้สูงขึ้นนิดนึง */}
+          <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex flex-col shrink-0 min-h-36">
             <h3 className="text-base font-semibold text-slate-800 mb-2">System Alerts</h3>
             <div className={`flex-1 flex flex-col items-center justify-center border-2 border-dashed rounded-lg p-4 
               ${offlineGatewaysCount > 0 ? 'border-red-500 bg-red-50' : offlineCount > 0 ? 'border-orange-300 bg-orange-50/50' : 'border-emerald-200 bg-emerald-50/50'}`}
@@ -386,7 +445,6 @@ export default function DashboardTab({
                   <ServerCrash className="mx-auto text-red-600 mb-1 animate-pulse" size={24} />
                   <p className="text-xs font-bold text-red-700">CRITICAL ERROR</p>
                   <p className="text-[11px] font-semibold text-red-600 mb-1">{offlineGatewaysCount} Gateway(s) Offline</p>
-                  {/* แสดงรายการ Gateway ที่ออฟไลน์ */}
                   <div className="text-[10px] text-red-500 font-mono bg-white/60 rounded px-2 py-1 mt-1 inline-block">
                     {offlineGateways.join(', ')}
                   </div>
@@ -395,7 +453,6 @@ export default function DashboardTab({
                 <div className="text-center w-full">
                   <ServerCrash className="mx-auto text-orange-500 mb-1" size={24} />
                   <p className="text-xs font-bold text-orange-700">{offlineCount} Device(s) Offline</p>
-                  {/* แสดงรายการ Device ที่ออฟไลน์ (สูงสุด 3 ตัว) */}
                   <div className="text-[10px] text-orange-600 font-mono bg-white/60 rounded px-2 py-1 mt-1 inline-block text-left max-w-full truncate">
                     {offlineNodes.slice(0, 3).join(', ')}
                     {offlineNodes.length > 3 ? ` +${offlineNodes.length - 3} more` : ''}
@@ -431,7 +488,6 @@ export default function DashboardTab({
               </select>
             </div>
             
-            {/* พื้นที่แสดงรายการ Log */}
             <div className="flex-1 overflow-y-auto space-y-2 custom-scrollbar pr-1 min-h-0">
               {filteredLogs.length === 0 ? (
                 <div className="text-xs text-slate-500 text-center mt-4 font-mono">No {logFilter !== 'ALL' ? logFilter : ''} activities found...</div>
@@ -517,6 +573,17 @@ export default function DashboardTab({
           )}
         </div>
       </div>
+
+      {/* --- แสดง ConfirmModal ที่ควบคุมด้วย State --- */}
+      <ConfirmModal 
+        isOpen={modalState.isOpen}
+        title={modalState.title}
+        message={modalState.message}
+        type={modalState.type}
+        confirmText={modalState.confirmText}
+        onConfirm={modalState.onConfirm}
+        onCancel={() => setModalState(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }

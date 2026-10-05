@@ -202,7 +202,10 @@ def on_message(client, userdata, msg):
 
             elif topic.endswith("/telemetry"):
                 device_id = data.get("device_id")
-                if not db.query(Node).filter(Node.node_id == device_id).first():
+                node = db.query(Node).filter(Node.node_id == device_id).first()
+                if node and node.status == "rejected":
+                    return
+                if not node:
                     client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id), json.dumps({"type": "command", "payload": {"device_id": device_id, "action": "RESET"}}))
                     return
 
