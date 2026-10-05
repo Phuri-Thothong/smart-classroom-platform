@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { X, AlertTriangle, Cpu, RefreshCw } from 'lucide-react';
+import ConfirmModal from './ConfirmModal';
+import { useToast } from '../contexts/ToastContext';
 
 const SAFE_PINS = [4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
 const STRAPPING_PINS = [0, 2, 5, 12, 15];
@@ -37,6 +39,17 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
     };
   });
 
+  const [confirmModalState, setConfirmModalState] = useState({
+    isOpen: false,
+    title: '',
+    message: '',
+    type: 'warning',
+    confirmText: 'Confirm',
+    onConfirm: () => {}
+  });
+
+  const { showToast } = useToast();
+
   if (!isOpen || !device) return null;
 
   const isPending = device.status === 'pending';
@@ -55,18 +68,32 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
     onSave(configData, isPending);
   };
 
-  // --- ฟังก์ชันกดขอเปลี่ยนห้อง (ส่งกลับไปสถานะ Pending) ---
   const handleRequestRelocation = () => {
-    if (window.confirm(`Do you want to relocate ${device.node_id}?\nThis will reset the device status to PENDING for re-configuration.`)) {
-      fetch(`${API_BASE_URL}/devices/${device.node_id}/request-relocation`, { method: 'POST' })
-        .then(res => {
-          if (res.ok) {
-            onClose();
-            window.location.reload(); // รีเฟรชหน้าจอเพื่อดึงสถานะล่าสุด
-          }
-        })
-        .catch(err => console.error(err));
-    }
+    setConfirmModalState({
+      isOpen: true,
+      title: 'Request Device Relocation',
+      message: `Do you want to relocate ${device.node_id}?\nThis will reset the device status to PENDING for re-configuration.`,
+      type: 'warning',
+      confirmText: 'Yes, Relocate',
+      onConfirm: () => {
+        fetch(`${API_BASE_URL}/devices/${device.node_id}/request-relocation`, { method: 'POST' })
+          .then(res => {
+            if (res.ok) {
+              setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+              onClose();
+              showToast(`Device ${device.node_id} is now pending for relocation.`, 'success');
+              setTimeout(() => window.location.reload(), 1000); // รีเฟรชหน้าจออัปเดตสถานะ
+            } else {
+              showToast('Failed to request relocation', 'error');
+              setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+            }
+          })
+          .catch(() => {
+            showToast('Network error while requesting relocation', 'error');
+            setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+          });
+      }
+    });
   };
 
   const handleGpioChange = (key, value) => {
@@ -119,7 +146,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
               )}
             </div>
 
-            {/* ถ้าเป็นสถานะ Pending หรือกำลังรีโลเคท ถึงจะให้เลือกห้องได้ */}
+            {/* ถ้าเป็นสถานะ Pending ถึงจะให้เลือกห้องได้ */}
             {isPending || isVirtualNode ? (
               <select required value={formData.room_id} onChange={e => setFormData({...formData, room_id: e.target.value})} 
                 disabled={isVirtualNode}
@@ -206,6 +233,16 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
           </div>
         </form>
       </div>
+
+      <ConfirmModal 
+        isOpen={confirmModalState.isOpen}
+        title={confirmModalState.title}
+        message={confirmModalState.message}
+        type={confirmModalState.type}
+        confirmText={confirmModalState.confirmText}
+        onConfirm={confirmModalState.onConfirm}
+        onCancel={() => setConfirmModalState(prev => ({ ...prev, isOpen: false }))}
+      />
     </div>
   );
 }
