@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, ChevronRight, Terminal, ChevronDown, X, RotateCcw } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, Terminal, ChevronDown, X, RotateCcw } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ConfirmModal from './ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
@@ -189,7 +189,6 @@ export default function DashboardTab({
     }, 3000);
   };
 
-  // --- ฟังก์ชันเรียกเปิด ConfirmModal แทน window.confirm ---
   const handleReject = (deviceId) => {
     setModalState({
       isOpen: true,
@@ -337,16 +336,16 @@ export default function DashboardTab({
           </div>
           
           <div className="overflow-x-auto overflow-y-auto flex-1 custom-scrollbar">
-            <table className="w-full text-left border-collapse min-w-150 relative">
+            <table className="w-full text-left border-collapse relative">
               <thead className="sticky top-0 bg-slate-50/95 backdrop-blur z-10 shadow-sm">
-                <tr className="text-slate-500 text-sm uppercase tracking-wider">
-                  <th className="p-4 font-medium">Device Info</th>
-                  <th className="p-4 font-medium">Type</th>
-                  <th className="p-4 font-medium">Onboarding / Status</th>
-                  <th className="p-4 font-medium text-right">Manage</th>
+                <tr className="text-slate-500 text-xs uppercase tracking-wider">
+                  <th className="p-3.5 font-medium">Device Info</th>
+                  <th className="p-3.5 font-medium">Type</th>
+                  <th className="p-3.5 font-medium">Status</th>
+                  <th className="p-3.5 font-medium text-right">Manage</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
+              <tbody className="divide-y divide-slate-100 text-sm">
                 {filteredDevices.length === 0 ? (
                   <tr><td colSpan="4" className="text-center py-8 text-slate-400">No devices match your filter</td></tr>
                 ) : (
@@ -360,58 +359,48 @@ export default function DashboardTab({
 
                     return (
                       <tr key={device.node_id} className={`hover:bg-slate-50 transition-colors ${isOffline ? 'opacity-70' : ''}`}>
-                        <td className="p-4">
+                        <td className="p-3.5">
                           <div className="flex items-center space-x-3">
-                            <div className={`p-2 rounded-lg ${iconBgColor}`}>{getDeviceIcon(device.device_type)}</div>
-                            <div>
-                              <p className={`font-medium ${isOffline ? 'text-slate-500' : 'text-slate-800'}`}>{device.device_name || device.node_id}</p>
-                              <div className="flex items-center space-x-2 text-xs text-slate-400 mt-0.5">
-                                <span>{device.node_id}</span>
+                            <div className={`p-2 rounded-lg shrink-0 ${iconBgColor}`}>{getDeviceIcon(device.device_type)}</div>
+                            <div className="min-w-0">
+                              <p className={`font-medium truncate ${isOffline ? 'text-slate-500' : 'text-slate-800'}`}>{device.device_name || device.node_id}</p>
+                              <div className="flex items-center space-x-1.5 text-xs text-slate-400 mt-0.5 truncate">
+                                <span className="truncate">{device.node_id}</span>
                                 {device.room_id ? (
-                                  <><span className="mx-1">•</span><span className="font-medium text-slate-500">{device.room_id}</span></>
+                                  <><span className="shrink-0">•</span><span className="font-medium text-slate-500 truncate">{device.room_id}</span></>
                                 ) : (
-                                  <><span className="mx-1">•</span><span className="italic text-amber-600">Unassigned</span></>
+                                  <><span className="shrink-0">•</span><span className="italic text-amber-600">Unassigned</span></>
                                 )}
                               </div>
                             </div>
                           </div>
                         </td>
-                        <td className="p-4">
+                        <td className="p-3.5 whitespace-nowrap">
                           <span className="px-2 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold rounded uppercase tracking-wider">{device.device_type}</span>
                         </td>
-                        <td className="p-4">
+                        <td className="p-3.5 whitespace-nowrap">
                           {isPending ? (
-                            <div className="flex items-center text-xs font-medium space-x-1.5 whitespace-nowrap">
-                              <div className="flex items-center text-blue-600" title="Metadata Received">
-                                <span className="w-4 h-4 bg-blue-100 rounded-full flex items-center justify-center mr-1 text-[10px]">1</span> Found
-                              </div>
-                              <ChevronRight size={14} className="text-slate-300" />
-                              <div className="flex items-center text-amber-600 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 animate-pulse shadow-sm" title="Waiting for Admin Approval">
-                                <span className="w-4 h-4 bg-amber-200 rounded-full flex items-center justify-center mr-1 text-[10px] text-amber-800">2</span> Needs Config
-                              </div>
-                              <ChevronRight size={14} className="text-slate-300" />
-                              <div className="flex items-center text-slate-300">
-                                <span className="w-4 h-4 bg-slate-100 rounded-full flex items-center justify-center mr-1 text-[10px]">3</span> Ready
-                              </div>
-                            </div>
+                            <span className="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 animate-pulse">
+                              <span className="w-1.5 h-1.5 rounded-full mr-1.5 bg-amber-500"></span>Pending Setup
+                            </span>
                           ) : (
                             <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-xs font-medium border ${badgeColor}`}>
-                              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotColor}`}></span>{isOffline ? 'Offline' : 'Online & Active'}
+                              <span className={`w-1.5 h-1.5 rounded-full mr-1.5 ${dotColor}`}></span>{isOffline ? 'Offline' : 'Online'}
                             </span>
                           )}
                         </td>
-                        <td className="p-4 text-right flex justify-end items-center h-full gap-2">
+                        <td className="p-3.5 text-right whitespace-nowrap">
                           {isPending ? (
-                            <>
-                              <button onClick={() => handleReject(device.node_id)} className="flex items-center px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded shadow-sm transition-colors border border-red-100" title="Reject Device">
+                            <div className="flex justify-end items-center gap-1.5">
+                              <button onClick={() => handleReject(device.node_id)} className="flex items-center px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded shadow-sm transition-colors border border-red-100" title="Reject Device">
                                 <X size={14} className="mr-1" /> Reject
                               </button>
-                              <button onClick={() => onOpenDeviceSetup(device)} className="flex items-center px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
+                              <button onClick={() => onOpenDeviceSetup(device)} className="flex items-center px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
                                 <CheckCircle size={14} className="mr-1.5" /> Approve
                               </button>
-                            </>
+                            </div>
                           ) : (
-                            <div className="flex space-x-1">
+                            <div className="flex justify-end space-x-1">
                               <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors" title="Settings"><Settings size={16} /></button>
                               
                               <button onClick={() => handleFactoryReset(device.node_id)} disabled={isOffline} className={`p-1.5 rounded-md transition-colors ${isOffline ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-orange-50 hover:text-orange-600'}`} title="Factory Reset (Wipe Hardware)">
