@@ -1,8 +1,10 @@
 import { useState } from 'react';
-import { X, AlertTriangle, Cpu } from 'lucide-react';
+import { X, AlertTriangle, Cpu, RefreshCw } from 'lucide-react';
 
 const SAFE_PINS = [4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
 const STRAPPING_PINS = [0, 2, 5, 12, 15];
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
 export default function DeviceSetupModal({ isOpen, onClose, onSave, device, roomsList = [] }) {
   const [formData, setFormData] = useState(() => {
@@ -37,7 +39,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
 
   if (!isOpen || !device) return null;
 
-  // --- ตรวจสอบว่าเป็น Virtual Node หรือไม่ ---
+  const isPending = device.status === 'pending';
   const isVirtualNode = device.firmware_version?.includes('GW') || device.node_id?.includes('-L') || device.node_id?.includes('-A');
 
   const handleSave = (e) => {
@@ -50,8 +52,21 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
       telemetry_interval: parseInt(formData.telemetry_interval),
       gpio_config: formData.gpio_config
     };
-    const isPending = device.status === 'pending';
     onSave(configData, isPending);
+  };
+
+  // --- ฟังก์ชันกดขอเปลี่ยนห้อง (ส่งกลับไปสถานะ Pending) ---
+  const handleRequestRelocation = () => {
+    if (window.confirm(`Do you want to relocate ${device.node_id}?\nThis will reset the device status to PENDING for re-configuration.`)) {
+      fetch(`${API_BASE_URL}/devices/${device.node_id}/request-relocation`, { method: 'POST' })
+        .then(res => {
+          if (res.ok) {
+            onClose();
+            window.location.reload(); // รีเฟรชหน้าจอเพื่อดึงสถานะล่าสุด
+          }
+        })
+        .catch(err => console.error(err));
+    }
   };
 
   const handleGpioChange = (key, value) => {
@@ -69,7 +84,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
         
         <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100">
           <h3 className="text-lg font-semibold text-slate-800">
-            {device.status === 'pending' ? 'Approve Device' : 'Device Configuration'}
+            {isPending ? 'Approve Device' : 'Device Configuration'}
           </h3>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600 transition-colors">
             <X size={20} />
@@ -91,15 +106,36 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
           </div>
 
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Assign Room</label>
-            <select required value={formData.room_id} onChange={e => setFormData({...formData, room_id: e.target.value})} 
-              disabled={isVirtualNode}
-              className={`w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${isVirtualNode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}>
-              <option value="">Select Room...</option>
-              {roomsList.map(r => <option key={r.room_id} value={r.room_id}>Room {r.room_name || r.room_id}</option>)}
-            </select>
+            <div className="flex justify-between items-center mb-1.5">
+              <label className="block text-sm font-semibold text-slate-700">Assign Room</label>
+              {!isPending && !isVirtualNode && (
+                <button 
+                  type="button" 
+                  onClick={handleRequestRelocation}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium flex items-center gap-1"
+                >
+                  <RefreshCw size={12} /> Request Relocation (Change Room)
+                </button>
+              )}
+            </div>
+
+            {/* ถ้าเป็นสถานะ Pending หรือกำลังรีโลเคท ถึงจะให้เลือกห้องได้ */}
+            {isPending || isVirtualNode ? (
+              <select required value={formData.room_id} onChange={e => setFormData({...formData, room_id: e.target.value})} 
+                disabled={isVirtualNode}
+                className={`w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${isVirtualNode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}>
+                <option value="">Select Room...</option>
+                {roomsList.map(r => <option key={r.room_id} value={r.room_id}>Room {r.room_name || r.room_id}</option>)}
+              </select>
+            ) : (
+              <div className="flex items-center justify-between w-full border border-slate-200 rounded-md text-sm p-2.5 bg-slate-50 text-slate-600 font-medium">
+                <span>Room {formData.room_id}</span>
+                <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-bold">Locked</span>
+              </div>
+            )}
+
             {isVirtualNode && (
-              <p className="text-[11px] text-slate-400 mt-1">Virtual Node room is inherited from its physical Gateway and cannot be changed independently.</p>
+              <p className="text-[11px] text-slate-400 mt-1">Virtual Node room is inherited from its physical Gateway.</p>
             )}
           </div>
 
@@ -165,7 +201,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
               Cancel
             </button>
             <button type="submit" className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm transition-colors">
-              {device.status === 'pending' ? 'Approve & Save' : 'Save Config'}
+              {isPending ? 'Approve & Save' : 'Save Config'}
             </button>
           </div>
         </form>

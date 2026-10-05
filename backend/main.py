@@ -185,6 +185,7 @@ def on_message(client, userdata, msg):
         try:
             if topic.endswith("/metadata"):
                 room_id, device_id = data.get("room_id"), data.get("device_id")
+                new_gateway_id = data.get("gateway_id")
                 if room_id:
                     if not db.query(Room).filter(Room.room_id == room_id).first():
                         db.add(Room(room_id=room_id, room_name=f"Room {room_id}"))
@@ -192,11 +193,23 @@ def on_message(client, userdata, msg):
 
                 node = db.query(Node).filter(Node.node_id == device_id).first()
                 if not node:
-                    db.add(Node(node_id=device_id, room_id=room_id, gateway_id=data.get("gateway_id"), device_type=data.get("device_type"), device_name=data.get("device_name"), firmware_version=data.get("firmware_version"), capabilities=data.get("capabilities")))
-                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"New device {device_id} ({data.get('device_type')}) detected via {data.get('gateway_id')}"))
+                    db.add(Node(
+                        node_id=device_id, 
+                        room_id=room_id, 
+                        gateway_id=new_gateway_id, 
+                        device_type=data.get("device_type"), 
+                        device_name=data.get("device_name"), 
+                        firmware_version=data.get("firmware_version"), 
+                        capabilities=data.get("capabilities"),
+                        status="pending"
+                    ))
+                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"New device {device_id} detected via {new_gateway_id}"))
                 else:
-                    node.room_id, node.gateway_id = room_id, data.get("gateway_id")
-                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {device_id} booted and came ONLINE"))
+                    node.gateway_id = new_gateway_id
+                    if node.status != "pending":
+                        pass
+                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {device_id} reported from Gateway {new_gateway_id}"))
+                
                 db.commit()
                 node_online_states[device_id] = True
 
