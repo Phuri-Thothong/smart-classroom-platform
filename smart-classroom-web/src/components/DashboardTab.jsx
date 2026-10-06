@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, Terminal, ChevronDown, X, RotateCcw } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, Terminal, ChevronDown, X, RotateCcw, ShieldAlert } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ConfirmModal from './ConfirmModal';
+import BlocklistModal from './BlocklistModal';
 import { useToast } from '../contexts/ToastContext';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
@@ -18,6 +19,7 @@ export default function DashboardTab({
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
   const [timeRange, setTimeRange] = useState('20');
+  const [isBlocklistOpen, setIsBlocklistOpen] = useState(false);
   const lockedNodesRef = useRef(new Set());
 
   // --- เพิ่ม State สำหรับควบคุม ConfirmModal ---
@@ -318,6 +320,9 @@ export default function DashboardTab({
                 ))}
               </select>
               <div className="flex space-x-1 border-l pl-2 border-slate-200">
+                <button onClick={() => setIsBlocklistOpen(true)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors" title="View Blocklist">
+                  <ShieldAlert size={18} />
+                </button>
                 <button onClick={onOpenAddRoom} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Add Room"><Plus size={18} /></button>
                 <button onClick={onOpenManageRooms} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-md transition-colors" title="Manage Rooms"><Edit3 size={18} /></button>
               </div>
@@ -572,6 +577,13 @@ export default function DashboardTab({
         confirmText={modalState.confirmText}
         onConfirm={modalState.onConfirm}
         onCancel={() => setModalState(prev => ({ ...prev, isOpen: false }))}
+      />
+      <BlocklistModal 
+        isOpen={isBlocklistOpen} 
+        onClose={() => {
+          setIsBlocklistOpen(false);
+          fetchTelemetryAndLogs();
+        }} 
       />
     </div>
   );

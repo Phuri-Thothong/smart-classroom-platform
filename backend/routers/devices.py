@@ -66,6 +66,10 @@ def get_devices(db: Session = Depends(get_db)):
         result.append(node_data)
     return result
 
+@router.get("/rejected")
+def get_rejected_devices(db: Session = Depends(get_db)):
+    return db.query(Node).filter(Node.status == "rejected").all()
+
 @router.get("/{device_id}")
 def get_device_api(device_id: str, db: Session = Depends(get_db)):
     return db.query(Node).filter(Node.node_id == device_id).first() or {"error": "Not found"}
@@ -138,6 +142,26 @@ async def control_device_api(device_id: str, request: Request, db: Session = Dep
         mqtt_shared.mqtt_client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id), json.dumps({"type": "command", "payload": {"device_id": device_id, "action": action}}))
         db.add(SystemLog(source="MANUAL", log_type="ACTION", message=f"Admin turned {action} {device_id}"))
         db.commit()
+    return {"status": "success"}
+
+@router.post("/{device_id}/restore")
+def restore_device_api(device_id: str, db: Session = Depends(get_db)):
+    device = db.query(Node).filter(Node.node_id == device_id).first()
+    if not device: 
+        raise HTTPException(status_code=404)
+    if mqtt_shared.mqtt_client:
+        topic = mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id)
+        payload = {
+            "type": "command", 
+            "payload": {
+                "device_id": device_id, 
+                "action": "RESET"
+            }
+        }
+        mqtt_shared.mqtt_client.publish(topic, json.dumps(payload))
+    device.status = "pending"
+    db.add(SystemLog(source="MANUAL", log_type="INFO", message=f"Admin restored {device_id} from blocklist. RESET command sent to hardware."))
+    db.commit()
     return {"status": "success"}
 
 @router.post("/{device_id}/reject")
