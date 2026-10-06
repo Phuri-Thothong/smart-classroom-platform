@@ -1,8 +1,10 @@
 import { useState } from 'react';
 import { X, AlertTriangle, Cpu } from 'lucide-react';
 
-const SAFE_PINS = [4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
-const STRAPPING_PINS = [0, 2, 5, 12, 15];
+// --- กำหนดกลุ่มพินให้เหมาะสมกับ ESP32 38-Pin ---
+const SAFE_OUTPUT_PINS = [2, 4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
+const INPUT_ONLY_PINS = [34, 35, 36, 39];
+const STRAPPING_PINS = [0, 5, 12, 15];
 
 export default function DeviceSetupModal({ isOpen, onClose, onSave, device, roomsList = [] }) {
   const [formData, setFormData] = useState(() => {
@@ -20,7 +22,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
       if (type === 'lighting' || type === 'air_control') {
         defaultGpio = { control_pin: 26 };
       } else if (type === 'occupancy') {
-        defaultGpio = { out_pin: 27 };
+        defaultGpio = { out_pin: 34 };
       } else if (type === 'energy_node') {
         defaultGpio = { rx_pin: 16, tx_pin: 17 };
       }
@@ -130,12 +132,12 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-slate-800">
                 <Cpu size={18} className="text-blue-600" />
-                <h4 className="text-sm font-semibold">Hardware Configuration</h4>
+                <h4 className="text-sm font-semibold">Hardware Configuration (ESP32 38-Pin)</h4>
               </div>
               <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase font-bold tracking-wider">{device.device_type}</span>
             </div>
             
-            <p className="text-xs text-slate-500">Default safe pins are pre-selected. Change only if necessary.</p>
+            <p className="text-xs text-slate-500">Select safe GPIO pins for your 38-pin DevKit board.</p>
 
             <div className="grid grid-cols-2 gap-4 mt-2">
               {Object.keys(formData.gpio_config).map((pinKey) => (
@@ -148,8 +150,11 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
                     onChange={e => handleGpioChange(pinKey, e.target.value)}
                     className="w-full border border-slate-300 rounded-md text-sm p-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono bg-slate-50"
                   >
-                    <optgroup label="Safe Pins (Recommended)">
-                      {SAFE_PINS.map(pin => <option key={`safe-${pin}`} value={pin}>GPIO {pin}</option>)}
+                    <optgroup label="Safe Output Pins">
+                      {SAFE_OUTPUT_PINS.map(pin => <option key={`safe-${pin}`} value={pin}>GPIO {pin}</option>)}
+                    </optgroup>
+                    <optgroup label="Input-Only Pins (Sensors)">
+                      {INPUT_ONLY_PINS.map(pin => <option key={`in-${pin}`} value={pin}>GPIO {pin}</option>)}
                     </optgroup>
                     <optgroup label="Strapping Pins (Caution)">
                       {STRAPPING_PINS.map(pin => <option key={`strap-${pin}`} value={pin}>GPIO {pin}</option>)}
@@ -162,7 +167,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
             {hasWarning && (
               <div className="mt-3 bg-orange-50 text-orange-700 p-2.5 rounded-md text-xs flex items-start gap-2 border border-orange-200">
                 <AlertTriangle size={16} className="shrink-0" />
-                <span><strong>Caution:</strong> Selecting a Strapping Pin (0, 2, 5, 12, 15) may cause boot issues on the ESP32.</span>
+                <span><strong>Caution:</strong> Selecting a Strapping Pin (0, 5, 12, 15) may affect boot mode on ESP32.</span>
               </div>
             )}
           </div>
