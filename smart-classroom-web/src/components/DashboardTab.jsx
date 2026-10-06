@@ -167,6 +167,7 @@ export default function DashboardTab({
     if (type.includes('light')) return <Lightbulb size={18} />;
     if (type.includes('air')) return <Wind size={18} />;
     if (type.includes('occupancy')) return <UserCheck size={18} />;
+    if (type.includes('multi')) return <Thermometer size={18} />;
     if (type.includes('sensor')) return <Thermometer size={18} />;
     return <Activity size={18} />;
   };

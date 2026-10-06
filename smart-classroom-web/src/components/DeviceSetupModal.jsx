@@ -25,6 +25,8 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
         defaultGpio = { out_pin: 34 };
       } else if (type === 'energy_node') {
         defaultGpio = { rx_pin: 16, tx_pin: 17 };
+      } else if (type === 'multi_sensor') {
+        defaultGpio = { sensor_pin: 34, dht_pin: 4, sda_pin: 21, scl_pin: 22 };
       }
     }
 
@@ -65,10 +67,10 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
   const hasWarning = Object.values(formData.gpio_config).some(pin => STRAPPING_PINS.includes(pin));
 
   return (
-    <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+    <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
         
-        <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 shrink-0 bg-white">
           <h3 className="text-lg font-semibold text-slate-800">
             {isPending ? 'Approve Device' : 'Device Configuration'}
           </h3>
@@ -77,103 +79,105 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
           </button>
         </div>
 
-        <form onSubmit={handleSave} className="p-6 space-y-5">
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Device ID</label>
-            <input type="text" disabled value={device.node_id} 
-              className="w-full border border-slate-200 rounded-md text-sm p-2.5 bg-slate-50 text-slate-500" />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Device Name</label>
-            <input type="text" placeholder="e.g. Front Air Conditioner" required 
-              value={formData.device_name} onChange={e => setFormData({...formData, device_name: e.target.value})} 
-              className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-          </div>
-
-          <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Assign Room</label>
-            {isPending || isVirtualNode ? (
-              <select required value={formData.room_id} onChange={e => setFormData({...formData, room_id: e.target.value})} 
-                disabled={isVirtualNode}
-                className={`w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${isVirtualNode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}>
-                <option value="">Select Room...</option>
-                {roomsList.map(r => <option key={r.room_id} value={r.room_id}>Room {r.room_name || r.room_id}</option>)}
-              </select>
-            ) : (
-              <div className="flex items-center justify-between w-full border border-slate-200 rounded-md text-sm p-2.5 bg-slate-50 text-slate-600 font-medium">
-                <span>Room {formData.room_id}</span>
-                <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-bold">Locked</span>
-              </div>
-            )}
-
-            {isVirtualNode && (
-              <p className="text-[11px] text-slate-400 mt-1">Virtual Node room is inherited from its physical Gateway.</p>
-            )}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
+        <form onSubmit={handleSave} className="flex flex-col overflow-hidden flex-1">
+          <div className="p-6 space-y-5 overflow-y-auto custom-scrollbar">
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Sampling (sec)</label>
-              <input type="number" min="1" required 
-                value={formData.sampling_interval} onChange={e => setFormData({...formData, sampling_interval: e.target.value})} 
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Device ID</label>
+              <input type="text" disabled value={device.node_id} 
+                className="w-full border border-slate-200 rounded-md text-sm p-2.5 bg-slate-50 text-slate-500" />
+            </div>
+
+            <div>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Device Name</label>
+              <input type="text" placeholder="e.g. Front Air Conditioner" required 
+                value={formData.device_name} onChange={e => setFormData({...formData, device_name: e.target.value})} 
                 className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
             </div>
+
             <div>
-              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Telemetry (sec)</label>
-              <input type="number" min="1" required 
-                value={formData.telemetry_interval} onChange={e => setFormData({...formData, telemetry_interval: e.target.value})} 
-                className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-            </div>
-          </div>
-
-          <div className="border-t border-slate-100 pt-5"></div>
-          <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2 text-slate-800">
-                <Cpu size={18} className="text-blue-600" />
-                <h4 className="text-sm font-semibold">Hardware Configuration (ESP32 38-Pin)</h4>
-              </div>
-              <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase font-bold tracking-wider">{device.device_type}</span>
-            </div>
-            
-            <p className="text-xs text-slate-500">Select safe GPIO pins for your 38-pin DevKit board.</p>
-
-            <div className="grid grid-cols-2 gap-4 mt-2">
-              {Object.keys(formData.gpio_config).map((pinKey) => (
-                <div key={pinKey}>
-                  <label className="block text-xs font-semibold text-slate-600 capitalize mb-1">
-                    {pinKey.replace('_', ' ')}
-                  </label>
-                  <select 
-                    value={formData.gpio_config[pinKey]} 
-                    onChange={e => handleGpioChange(pinKey, e.target.value)}
-                    className="w-full border border-slate-300 rounded-md text-sm p-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono bg-slate-50"
-                  >
-                    <optgroup label="Safe Output Pins">
-                      {SAFE_OUTPUT_PINS.map(pin => <option key={`safe-${pin}`} value={pin}>GPIO {pin}</option>)}
-                    </optgroup>
-                    <optgroup label="Input-Only Pins (Sensors)">
-                      {INPUT_ONLY_PINS.map(pin => <option key={`in-${pin}`} value={pin}>GPIO {pin}</option>)}
-                    </optgroup>
-                    <optgroup label="Strapping Pins (Caution)">
-                      {STRAPPING_PINS.map(pin => <option key={`strap-${pin}`} value={pin}>GPIO {pin}</option>)}
-                    </optgroup>
-                  </select>
+              <label className="block text-sm font-semibold text-slate-700 mb-1.5">Assign Room</label>
+              {isPending || isVirtualNode ? (
+                <select required value={formData.room_id} onChange={e => setFormData({...formData, room_id: e.target.value})} 
+                  disabled={isVirtualNode}
+                  className={`w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${isVirtualNode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}>
+                  <option value="">Select Room...</option>
+                  {roomsList.map(r => <option key={r.room_id} value={r.room_id}>Room {r.room_name || r.room_id}</option>)}
+                </select>
+              ) : (
+                <div className="flex items-center justify-between w-full border border-slate-200 rounded-md text-sm p-2.5 bg-slate-50 text-slate-600 font-medium">
+                  <span>Room {formData.room_id}</span>
+                  <span className="text-[10px] bg-slate-200 text-slate-600 px-2 py-0.5 rounded font-bold">Locked</span>
                 </div>
-              ))}
+              )}
+
+              {isVirtualNode && (
+                <p className="text-[11px] text-slate-400 mt-1">Virtual Node room is inherited from its physical Gateway.</p>
+              )}
             </div>
 
-            {hasWarning && (
-              <div className="mt-3 bg-orange-50 text-orange-700 p-2.5 rounded-md text-xs flex items-start gap-2 border border-orange-200">
-                <AlertTriangle size={16} className="shrink-0" />
-                <span><strong>Caution:</strong> Selecting a Strapping Pin (0, 5, 12, 15) may affect boot mode on ESP32.</span>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Sampling (sec)</label>
+                <input type="number" min="1" required 
+                  value={formData.sampling_interval} onChange={e => setFormData({...formData, sampling_interval: e.target.value})} 
+                  className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
               </div>
-            )}
+              <div>
+                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Telemetry (sec)</label>
+                <input type="number" min="1" required 
+                  value={formData.telemetry_interval} onChange={e => setFormData({...formData, telemetry_interval: e.target.value})} 
+                  className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+              </div>
+            </div>
+
+            <div className="border-t border-slate-100 pt-5"></div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 text-slate-800">
+                  <Cpu size={18} className="text-blue-600" />
+                  <h4 className="text-sm font-semibold">Hardware Configuration (ESP32 38-Pin)</h4>
+                </div>
+                <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase font-bold tracking-wider">{device.device_type}</span>
+              </div>
+              
+              <p className="text-xs text-slate-500">Select safe GPIO pins for your 38-pin DevKit board.</p>
+
+              <div className="grid grid-cols-2 gap-4 mt-2">
+                {Object.keys(formData.gpio_config).map((pinKey) => (
+                  <div key={pinKey}>
+                    <label className="block text-xs font-semibold text-slate-600 capitalize mb-1">
+                      {pinKey.replace('_', ' ')}
+                    </label>
+                    <select 
+                      value={formData.gpio_config[pinKey]} 
+                      onChange={e => handleGpioChange(pinKey, e.target.value)}
+                      className="w-full border border-slate-300 rounded-md text-sm p-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono bg-slate-50"
+                    >
+                      <optgroup label="Safe Output Pins">
+                        {SAFE_OUTPUT_PINS.map(pin => <option key={`safe-${pin}`} value={pin}>GPIO {pin}</option>)}
+                      </optgroup>
+                      <optgroup label="Input-Only Pins (Sensors)">
+                        {INPUT_ONLY_PINS.map(pin => <option key={`in-${pin}`} value={pin}>GPIO {pin}</option>)}
+                      </optgroup>
+                      <optgroup label="Strapping Pins (Caution)">
+                        {STRAPPING_PINS.map(pin => <option key={`strap-${pin}`} value={pin}>GPIO {pin}</option>)}
+                      </optgroup>
+                    </select>
+                  </div>
+                ))}
+              </div>
+
+              {hasWarning && (
+                <div className="mt-3 bg-orange-50 text-orange-700 p-2.5 rounded-md text-xs flex items-start gap-2 border border-orange-200">
+                  <AlertTriangle size={16} className="shrink-0" />
+                  <span><strong>Caution:</strong> Selecting a Strapping Pin (0, 5, 12, 15) may affect boot mode on ESP32.</span>
+                </div>
+              )}
+            </div>
           </div>
 
-          <div className="pt-4 flex justify-end gap-3">
-            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-md transition-colors">
+          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
+            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors shadow-sm">
               Cancel
             </button>
             <button type="submit" className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm transition-colors">
