@@ -186,6 +186,7 @@ def on_message(client, userdata, msg):
             if topic.endswith("/metadata"):
                 room_id, device_id = data.get("room_id"), data.get("device_id")
                 new_gateway_id = data.get("gateway_id")
+                incoming_caps = data.get("capabilities")
                 if room_id:
                     if not db.query(Room).filter(Room.room_id == room_id).first():
                         db.add(Room(room_id=room_id, room_name=f"Room {room_id}"))
@@ -200,15 +201,17 @@ def on_message(client, userdata, msg):
                         device_type=data.get("device_type"), 
                         device_name=data.get("device_name"), 
                         firmware_version=data.get("firmware_version"), 
-                        capabilities=data.get("capabilities"),
+                        capabilities=incoming_caps,
                         status="pending"
                     ))
                     db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"New device {device_id} detected via {new_gateway_id}"))
                 else:
+                    node.room_id = room_id
                     node.gateway_id = new_gateway_id
-                    if node.status != "pending":
-                        pass
-                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {device_id} reported from Gateway {new_gateway_id}"))
+                    node.device_type = data.get("device_type", node.device_type)
+                    if incoming_caps:
+                        node.capabilities = incoming_caps             
+                    db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {device_id} reported from Gateway {new_gateway_id} with updated config."))
                 
                 db.commit()
                 node_online_states[device_id] = True
