@@ -11,6 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 import uvicorn
+from dotenv import load_dotenv
 
 # --- Import Database Tools & Shared Variables ---
 from database import engine, Base, SessionLocal, get_db
@@ -21,6 +22,7 @@ import mqtt_shared
 from routers import rooms, devices, gateways, automation
 
 # --- โหลดค่า Configuration จาก .env ---
+load_dotenv()
 PRE_COOL_MINUTES = int(os.getenv("PRE_COOL_MINUTES", 15))
 NODE_TIMEOUT_MIN_GRACE = int(os.getenv("NODE_TIMEOUT_MIN_GRACE", 45))
 NODE_MONITOR_INTERVAL = int(os.getenv("NODE_MONITOR_INTERVAL", 30))
@@ -46,13 +48,15 @@ logging.getLogger("apscheduler").setLevel(logging.WARNING)
 # 1. HELPER FUNCTIONS & SCHEDULER
 # =========================================================
 def trigger_room_devices(db: Session, room_id: str, action: str, device_type_filter: list = None):
-    query = db.query(Node).filter(Node.room_id == room_id)
+    query = db.query(Node).filter(Node.room_id == room_id, Node.status == "approved")
     if device_type_filter:
-        query = query.filter(Node.device_type.in_(device_type_filter))
+        lower_filters = [dt.lower() for dt in device_type_filter]
+        query = query.filter(func.lower(Node.device_type).in_(lower_filters))
     else:
-        query = query.filter(Node.device_type.in_(["lighting", "air_control"]))
+        query = query.filter(func.lower(Node.device_type).in_(["lighting", "air_control"]))
         
     devices_in_room = query.all()
+    print(f"[Scheduler] Trigger Room {room_id} | Action: {action} | Found Devices: {len(devices_in_room)}")
     for dev in devices_in_room:
         payload = {"type": "command", "payload": {"device_id": dev.node_id, "action": action}}
         if mqtt_shared.mqtt_client:
