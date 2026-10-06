@@ -126,24 +126,28 @@ def check_schedules_and_trigger():
     try:
         now = datetime.now()
         current_day = (now.isoweekday() % 7) + 1 
-        current_time_obj = now.time()
-        
+        current_time = now.time()
         todays_classes = db.query(ClassSchedule).filter(ClassSchedule.day_of_week == current_day).all()
         
         for cls in todays_classes:
             start_datetime = datetime.combine(now.date(), cls.start_time)
-            pre_start_time = (start_datetime - timedelta(minutes=PRE_COOL_MINUTES)).time()
-            if current_time_obj.hour == pre_start_time.hour and current_time_obj.minute == pre_start_time.minute:
-                print(f"[Scheduler] {PRE_COOL_MINUTES}-Min Pre-cool for {cls.subject_code} in {cls.room_id}")
+            end_datetime = datetime.combine(now.date(), cls.end_time)
+            pre_start_datetime = start_datetime - timedelta(minutes=PRE_COOL_MINUTES)
+            pre_start_time = pre_start_datetime.time()
+            class_end_time = cls.end_time
+            current_secs = current_time.hour * 3600 + current_time.minute * 60 + current_time.second
+            pre_start_secs = pre_start_time.hour * 3600 + pre_start_time.minute * 60 + pre_start_time.second
+            start_secs = cls.start_time.hour * 3600 + cls.start_time.minute * 60 + cls.start_time.second
+            end_secs = cls.end_time.hour * 3600 + cls.end_time.minute * 60 + cls.end_time.second
+            if pre_start_secs <= current_secs < pre_start_secs + 60:
+                print(f"[Scheduler] {PRE_COOL_MINUTES}-Min Pre-cool triggered for {cls.subject_code} in {cls.room_id}")
                 trigger_room_devices(db, cls.room_id, "ON", ["air_control"])
-
-            if current_time_obj.hour == cls.start_time.hour and current_time_obj.minute == cls.start_time.minute:
+            if start_secs <= current_secs < start_secs + 60:
                 print(f"[Scheduler] Class Started: {cls.subject_code} in {cls.room_id}")
                 trigger_room_devices(db, cls.room_id, "ON", ["lighting"])
-
-            if current_time_obj.hour == cls.end_time.hour and current_time_obj.minute == cls.end_time.minute:
+            if end_secs <= current_secs < end_secs + 60:
                 print(f"[Scheduler] Class Ended: {cls.subject_code} in {cls.room_id}. Turning off devices.")
-                trigger_room_devices(db, cls.room_id, "OFF", ["lighting", "air_control"])
+                trigger_room_devices(db, cls.room_id, "OFF", ["lighting", "air_control"])             
     finally:
         db.close()
 
