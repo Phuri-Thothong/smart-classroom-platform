@@ -19,6 +19,7 @@ export default function DashboardTab({
   const [selectedRoom, setSelectedRoom] = useState('All');
   const [selectedType, setSelectedType] = useState('All');
   const [timeRange, setTimeRange] = useState('20');
+  const [selectedMetric, setSelectedMetric] = useState('power');
   const [isBlocklistOpen, setIsBlocklistOpen] = useState(false);
   const lockedNodesRef = useRef(new Set());
 
@@ -83,8 +84,15 @@ export default function DashboardTab({
   };
 
   const graphNodes = useMemo(() => {
-    return filteredDevices.filter(d => d.status !== 'pending' && d.device_type === 'energy_node');
-  }, [filteredDevices]);
+    return filteredDevices.filter(d => {
+      if (d.status === 'pending') return false;
+      if (selectedMetric === 'power') return d.device_type === 'energy_node';
+      if (['temperature', 'humidity', 'light_lux'].includes(selectedMetric)) {
+        return d.device_type === 'multi_sensor';
+      }
+      return false;
+    });
+  }, [filteredDevices, selectedMetric]);
 
   const activeGraphNode = useMemo(() => {
     if (graphNodes.length === 0) return '';
@@ -106,9 +114,19 @@ export default function DashboardTab({
           const formattedData = data.map(item => {
             const sensorData = typeof item.data === 'string' ? JSON.parse(item.data) : item.data;
             const date = new Date(item.timestamp);
+            let value = 0;
+            if (selectedMetric === 'power') {
+              value = sensorData.power_usage_watts || 0;
+            } else if (selectedMetric === 'temperature') {
+              value = sensorData.temperature || 0;
+            } else if (selectedMetric === 'humidity') {
+              value = sensorData.humidity || 0;
+            } else if (selectedMetric === 'light_lux') {
+              value = sensorData.light_lux || 0;
+            }
             return {
               time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-              power: sensorData.power_usage_watts || 0
+              value: value
             };
           }).reverse();
           setTelemetryData(formattedData);
@@ -149,7 +167,7 @@ export default function DashboardTab({
         });
       })
       .catch(() => {});
-  }, [activeGraphNode, timeRange]);
+  }, [activeGraphNode, timeRange, selectedMetric]);
 
   const filteredLogs = useMemo(() => {
     if (logFilter === 'ALL') return systemLogs;
@@ -505,12 +523,39 @@ export default function DashboardTab({
         </div>
       </div>
 
-      {/* ---------------- 3. FULL WIDTH BOTTOM (ENERGY TRENDS) ---------------- */}
+      {/* ---------------- 3. FULL WIDTH BOTTOM (UNIVERSAL CHART) ---------------- */}
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6 w-full">
-        <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-semibold text-slate-800">Room Power Consumption</h3>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
+          <h3 className="text-lg font-semibold text-slate-800">Telemetry Data</h3>
           
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* 1. Dropdown เลือกประเภทข้อมูล */}
+            <select
+              value={selectedMetric}
+              onChange={(e) => setSelectedMetric(e.target.value)}
+              className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-1.5 outline-none font-semibold text-slate-700"
+            >
+              <option value="power">⚡ Power (Watts)</option>
+              <option value="temperature">🌡️ Temperature (°C)</option>
+              <option value="humidity">💧 Humidity (%)</option>
+              <option value="light_lux">☀️ Light (Lux)</option>
+            </select>
+
+            {/* 2. Dropdown เลือกโหนด (จะเปลี่ยนรายการอัตโนมัติตาม Metric ที่เลือก) */}
+            <select 
+              value={activeGraphNode} 
+              onChange={(e) => setSelectedGraphNode(e.target.value)} 
+              disabled={graphNodes.length === 0}
+              className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-slate-200 px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {graphNodes.length === 0 ? (
+                <option value="">No Compatible Node Found</option>
+              ) : (
+                graphNodes.map(d => <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>)
+              )}
+            </select>
+
+            {/* 3. Dropdown เลือกจำนวนจุด */}
             <select
               value={timeRange}
               onChange={(e) => setTimeRange(e.target.value)}
@@ -522,19 +567,6 @@ export default function DashboardTab({
               <option value="50">Latest 50 points</option>
               <option value="100">Latest 100 points</option>
             </select>
-
-            <select 
-              value={activeGraphNode} 
-              onChange={(e) => setSelectedGraphNode(e.target.value)} 
-              disabled={graphNodes.length === 0}
-              className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-slate-200 px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {graphNodes.length === 0 ? (
-                <option value="">No Energy Node Connected</option>
-              ) : (
-                graphNodes.map(d => <option key={d.node_id} value={d.node_id}>{d.device_name || d.node_id}</option>)
-              )}
-            </select>
           </div>
         </div>
         
@@ -542,8 +574,8 @@ export default function DashboardTab({
           {graphNodes.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-slate-400 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
               <AlertTriangle className="text-amber-500 mb-2" size={28} />
-              <p className="text-sm font-medium text-slate-600">Energy Meter Component Locked</p>
-              <p className="text-xs text-slate-400 mt-1">Please onboard and approve an Energy Node to activate this chart.</p>
+              <p className="text-sm font-medium text-slate-600">No Target Node Found</p>
+              <p className="text-xs text-slate-400 mt-1">Please onboard an equipment that supports this telemetry metric.</p>
             </div>
           ) : !activeGraphNode || telemetryData.length === 0 ? (
             <div className="h-full flex items-center justify-center text-slate-400 border-2 border-dashed border-slate-100 rounded-lg">
@@ -559,17 +591,39 @@ export default function DashboardTab({
                 />
                 <YAxis 
                   axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11 }}
-                  label={{ value: 'Power (Watts)', angle: -90, position: 'insideLeft', offset: 15, fill: '#64748b', fontSize: 12, fontWeight: 500, style: { textAnchor: 'middle' } }}
+                  label={{ 
+                    value: selectedMetric === 'power' ? 'Power (W)' : 
+                           selectedMetric === 'temperature' ? 'Temp (°C)' : 
+                           selectedMetric === 'humidity' ? 'Hum (%)' : 'Light (Lux)', 
+                    angle: -90, position: 'insideLeft', offset: 15, fill: '#64748b', fontSize: 12, fontWeight: 500, style: { textAnchor: 'middle' } 
+                  }}
                 />
                 <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                <Line type="monotone" dataKey="power" name="Power" stroke="#3b82f6" strokeWidth={2} dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 5 }} isAnimationActive={false} />
+                <Line 
+                  type="monotone" 
+                  dataKey="value" 
+                  name={
+                    selectedMetric === 'power' ? 'Power (W)' : 
+                    selectedMetric === 'temperature' ? 'Temp (°C)' : 
+                    selectedMetric === 'humidity' ? 'Humidity (%)' : 'Light (Lux)'
+                  } 
+                  stroke={
+                    selectedMetric === 'power' ? '#3b82f6' :
+                    selectedMetric === 'temperature' ? '#ef4444' :
+                    selectedMetric === 'humidity' ? '#0ea5e9' :
+                    '#eab308'
+                  } 
+                  strokeWidth={2} 
+                  dot={{ r: 3, fill: '#fff', strokeWidth: 2 }} 
+                  activeDot={{ r: 5 }} 
+                  isAnimationActive={false} 
+                />
               </LineChart>
             </ResponsiveContainer>
           )}
         </div>
       </div>
 
-      {/* --- แสดง ConfirmModal ที่ควบคุมด้วย State --- */}
       <ConfirmModal 
         isOpen={modalState.isOpen}
         title={modalState.title}
