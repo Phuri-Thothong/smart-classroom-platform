@@ -9,6 +9,9 @@ from database import get_db
 from models import Node, Telemetry, SystemLog
 from schemas import DeviceConfig
 import mqtt_shared
+from dotenv import load_dotenv
+
+load_dotenv()
 
 NODE_TIMEOUT_MIN_GRACE = int(os.getenv("NODE_TIMEOUT_MIN_GRACE", 45))
 
