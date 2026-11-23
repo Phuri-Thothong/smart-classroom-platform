@@ -75,7 +75,6 @@ def trigger_room_devices(db: Session, room_id: str, action: str, device_type_fil
 def monitor_node_health():
     db = SessionLocal()
     try:
-        current_time = datetime.utcnow()
         nodes = db.query(Node).filter(Node.status == "approved").all()
         if not nodes:
             return
@@ -83,41 +82,54 @@ def monitor_node_health():
             Telemetry.node_id,
             func.max(Telemetry.timestamp).label('latest_time')
         ).group_by(Telemetry.node_id).all()
-        latest_time_map = {row.node_id: row.latest_time for row in latest_tels} 
+        latest_time_map = {row.node_id: row.latest_time for row in latest_tels}
+
         for node in nodes:
             is_online = False
-            latest_timestamp = latest_time_map.get(node.node_id)
             caps = node.capabilities if isinstance(node.capabilities, dict) else (json.loads(node.capabilities) if isinstance(node.capabilities, str) else {})
-            if isinstance(caps, str): 
+            if isinstance(caps, str):
                 try: caps = json.loads(caps)
                 except: caps = {}
-            tel_interval = caps.get("telemetry_interval", 10)
-            timeout_threshold = max(NODE_TIMEOUT_MIN_GRACE, tel_interval * 3)            
-            if latest_timestamp:
-                try:
-                    time_str = latest_timestamp.replace("Z", "")
-                    tel_time = datetime.fromisoformat(time_str) if isinstance(latest_timestamp, str) else latest_timestamp.replace(tzinfo=None)
-                    diff_utc = abs((datetime.utcnow() - tel_time).total_seconds())
-                    diff_local = abs((datetime.now() - tel_time).total_seconds())
-                    actual_diff = min(diff_utc, diff_local)
-                    
-                    if actual_diff <= timeout_threshold:
-                        is_online = True
-                except Exception: 
-                    pass
+
+            default_tel = mqtt_shared.get_default_telemetry_interval(node.device_type)
+            tel_interval = caps.get("telemetry_interval", default_tel)
+            timeout_threshold = max(NODE_TIMEOUT_MIN_GRACE, tel_interval * 3)
+
+            # 1. เช็กจาก Heartbeat ใน RAM ก่อน รองรับโหนด Change-of-Value ที่ไม่ได้เขียน DB ทุกครั้ง
+            last_seen = mqtt_shared.node_last_seen.get(node.node_id)
+            if last_seen:
+                if abs((datetime.utcnow() - last_seen).total_seconds()) <= timeout_threshold:
+                    is_online = True
+            else:
+                # 2. Fallback เช็กจาก DB กรณีเพิ่งรีสตาร์ท Backend
+                latest_timestamp = latest_time_map.get(node.node_id)
+                if latest_timestamp:
+                    try:
+                        if isinstance(latest_timestamp, str):
+                            tel_time = datetime.fromisoformat(latest_timestamp.replace("Z", ""))
+                        else:
+                            tel_time = latest_timestamp.replace(tzinfo=None)
+                        diff_utc = abs((datetime.utcnow() - tel_time).total_seconds())
+                        diff_local = abs((datetime.now() - tel_time).total_seconds())
+                        if min(diff_utc, diff_local) <= timeout_threshold:
+                            is_online = True
+                    except Exception:
+                        pass
+
             gw_status = mqtt_shared.gateway_statuses.get(node.gateway_id, "offline")
             if not node.gateway_id or gw_status != "online":
                 is_online = False
+
             old_state = node_online_states.get(node.node_id)
             if old_state is True and not is_online:
                 db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Node {node.node_id} went OFFLINE (Gateway {node.gateway_id} is {gw_status.upper()} or Timeout)"))
             elif old_state is False and is_online:
-                db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {node.node_id} is back ONLINE (Receiving Data)"))           
+                db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"Node {node.node_id} is back ONLINE (Receiving Data)"))
             node_online_states[node.node_id] = is_online
         db.commit()
-            
+
     except Exception as e:
-        pass
+        print(f"[Health Monitor Error] {e}")
     finally:
         db.close()
 
@@ -233,19 +245,49 @@ def on_message(client, userdata, msg):
                     client.publish(mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id), json.dumps({"type": "command", "payload": {"device_id": device_id, "action": "RESET"}}))
                     return
 
-                node_timestamp = data.get("timestamp") if data.get("timestamp") and data.get("timestamp") != "auto" else datetime.now().isoformat()
-                db.add(Telemetry(node_id=device_id, timestamp=node_timestamp, data=data.get("data")))
-                db.commit()
+                # 1. อัปเดต Heartbeat ใน RAM ทุกครั้งที่ได้รับข้อมูลจากโหนด
+                mqtt_shared.node_last_seen[device_id] = datetime.utcnow()
 
-                active_rules = db.query(AutomationRule).filter(AutomationRule.sensor_node_id == device_id, AutomationRule.is_active == True).all()
                 sensor_values = data.get("data", {})
-                current_time = datetime.utcnow()
+                if isinstance(sensor_values, str):
+                    try: sensor_values = json.loads(sensor_values)
+                    except: sensor_values = {}
+
+                # 2. Change-of-Value Logging สำหรับโหนดไฟและแอร์ บันทึก DB เฉพาะตอนสถานะเปลี่ยน
+                should_save_db = True
+                if (node.device_type or "").lower() in ("lighting", "air_control"):
+                    incoming_state = str(sensor_values.get("status", "OFF")).upper() if isinstance(sensor_values, dict) else "OFF"
+                    prev_state = mqtt_shared.node_last_states.get(device_id)
+
+                    if prev_state is None:
+                        last_row = (
+                            db.query(Telemetry)
+                            .filter(Telemetry.node_id == device_id)
+                            .order_by(Telemetry.telemetry_id.desc())
+                            .first()
+                        )
+                        if last_row and last_row.data:
+                            last_data = json.loads(last_row.data) if isinstance(last_row.data, str) else last_row.data
+                            if isinstance(last_data, dict):
+                                prev_state = str(last_data.get("status", "")).upper()
+
+                    mqtt_shared.node_last_states[device_id] = incoming_state
+                    if prev_state == incoming_state:
+                        should_save_db = False
+
+                if should_save_db:
+                    node_timestamp = data.get("timestamp") if data.get("timestamp") and data.get("timestamp") != "auto" else datetime.now().isoformat()
+                    db.add(Telemetry(node_id=device_id, timestamp=node_timestamp, data=sensor_values))
+                    db.commit()
+
+                # 3. Rule Engine
+                active_rules = db.query(AutomationRule).filter(AutomationRule.sensor_node_id == device_id, AutomationRule.is_active == True).all()
                 for rule in active_rules:
-                    if rule.sensor_key in sensor_values:
+                    if isinstance(sensor_values, dict) and rule.sensor_key in sensor_values:
                         val = sensor_values[rule.sensor_key]
                         thres = rule.condition_value
                         trigger = False
-                        
+
                         try:
                             if rule.condition_operator == "==" and str(val).upper() == str(thres).upper():
                                 trigger = True
@@ -257,52 +299,72 @@ def on_message(client, userdata, msg):
                                 elif rule.condition_operator == "!=" and val_f != thres_f: trigger = True
                         except ValueError:
                             pass
-                        
+
                         if trigger:
                             target_node = db.query(Node).filter(Node.node_id == rule.target_node_id).first()
                             if not target_node or target_node.status == "pending":
                                 continue
-                            
+
+                            # คำนวณ Timeout ตาม telemetry_interval จริงของโหนดปลายทาง
+                            t_caps = target_node.capabilities if isinstance(target_node.capabilities, dict) else (json.loads(target_node.capabilities) if isinstance(target_node.capabilities, str) else {})
+                            if isinstance(t_caps, str):
+                                try: t_caps = json.loads(t_caps)
+                                except: t_caps = {}
+                            t_default_tel = mqtt_shared.get_default_telemetry_interval(target_node.device_type)
+                            t_tel_interval = t_caps.get("telemetry_interval", t_default_tel)
+                            t_timeout = max(NODE_TIMEOUT_MIN_GRACE, t_tel_interval * 3)
+
                             is_target_online = False
-                            latest_tel = db.query(Telemetry).filter(Telemetry.node_id == rule.target_node_id).order_by(Telemetry.telemetry_id.desc()).first()
-                            
-                            if latest_tel and latest_tel.timestamp:
-                                try:
-                                    time_str = latest_tel.timestamp.replace("Z", "")
-                                    tel_time = datetime.fromisoformat(time_str) if isinstance(latest_tel.timestamp, str) else latest_tel.timestamp.replace(tzinfo=None)
-                                    diff_utc = abs((datetime.utcnow() - tel_time).total_seconds())
-                                    diff_local = abs((datetime.now() - tel_time).total_seconds())
-                                    actual_diff = min(diff_utc, diff_local)
-                                    
-                                    if actual_diff <= 45:
-                                        is_target_online = True
-                                except Exception:
-                                    pass
+                            latest_tel = None
+
+                            # เช็กออนไลน์จาก Heartbeat ใน RAM ก่อน
+                            target_last_seen = mqtt_shared.node_last_seen.get(rule.target_node_id)
+                            if target_last_seen:
+                                if abs((datetime.utcnow() - target_last_seen).total_seconds()) <= t_timeout:
+                                    is_target_online = True
+                            else:
+                                latest_tel = db.query(Telemetry).filter(Telemetry.node_id == rule.target_node_id).order_by(Telemetry.telemetry_id.desc()).first()
+                                if latest_tel and latest_tel.timestamp:
+                                    try:
+                                        if isinstance(latest_tel.timestamp, str):
+                                            tel_time = datetime.fromisoformat(latest_tel.timestamp.replace("Z", ""))
+                                        else:
+                                            tel_time = latest_tel.timestamp.replace(tzinfo=None)
+                                        diff_utc = abs((datetime.utcnow() - tel_time).total_seconds())
+                                        diff_local = abs((datetime.now() - tel_time).total_seconds())
+                                        if min(diff_utc, diff_local) <= t_timeout:
+                                            is_target_online = True
+                                    except Exception:
+                                        pass
 
                             gw_status = mqtt_shared.gateway_statuses.get(target_node.gateway_id, "offline")
                             if gw_status != "online":
                                 is_target_online = False
-                                
+
                             if is_target_online:
-                                # --- เพิ่มระบบป้องกันการสั่งงานซ้ำซ้อน ---
-                                target_current_state = "OFF"
-                                if latest_tel and latest_tel.data:
-                                    t_data = latest_tel.data
-                                    if isinstance(t_data, str):
-                                        try: t_data = json.loads(t_data)
-                                        except: t_data = {}
-                                    if isinstance(t_data, dict):
-                                        target_current_state = t_data.get("status", "OFF")
-                                # เช็กว่าสถานะใหม่ตรงกับสถานะเดิมหรือไม่ ถ้าไม่ตรงถึงจะสั่ง Publish
+                                # เช็กสถานะล่าสุดจาก RAM ก่อน เพื่อป้องกันการสั่งงานซ้ำซ้อน
+                                target_current_state = mqtt_shared.node_last_states.get(rule.target_node_id)
+                                if target_current_state is None:
+                                    if latest_tel is None:
+                                        latest_tel = db.query(Telemetry).filter(Telemetry.node_id == rule.target_node_id).order_by(Telemetry.telemetry_id.desc()).first()
+                                    target_current_state = "OFF"
+                                    if latest_tel and latest_tel.data:
+                                        t_data = latest_tel.data
+                                        if isinstance(t_data, str):
+                                            try: t_data = json.loads(t_data)
+                                            except: t_data = {}
+                                        if isinstance(t_data, dict):
+                                            target_current_state = t_data.get("status", "OFF")
+
                                 if str(target_current_state).upper() != str(rule.action).upper():
                                     client.publish(
-                                        mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id), 
+                                        mqtt_shared.MQTT_COMMAND_TOPIC.format(rule.target_node_id),
                                         json.dumps({"type": "command", "payload": {"device_id": rule.target_node_id, "action": rule.action}})
                                     )
                                     print(f"[Rule Engine] Triggered: {device_id} -> {rule.target_node_id} ({rule.action})")
                                     db.add(SystemLog(
-                                        source="RULE", 
-                                        log_type="ACTION", 
+                                        source="RULE",
+                                        log_type="ACTION",
                                         message=f"Rule '{rule.name}' turned {rule.action} {rule.target_node_id}"
                                     ))
                                     db.commit()

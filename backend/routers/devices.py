@@ -20,52 +20,69 @@ router = APIRouter(prefix="/devices", tags=["Devices"])
 @router.get("")
 def get_devices(db: Session = Depends(get_db)):
     nodes = db.query(Node).filter(Node.status != "rejected").all()
-    result, current_time = [], datetime.utcnow()
+    result = []
     for node in nodes:
         caps = node.capabilities if isinstance(node.capabilities, dict) else (json.loads(node.capabilities) if isinstance(node.capabilities, str) else {})
-        if isinstance(caps, str): 
+        if isinstance(caps, str):
             try: caps = json.loads(caps)
             except: caps = {}
-        
-        tel_interval = caps.get("telemetry_interval", 10)
+
+        default_tel = mqtt_shared.get_default_telemetry_interval(node.device_type)
+        tel_interval = caps.get("telemetry_interval", default_tel)
         timeout_threshold = max(NODE_TIMEOUT_MIN_GRACE, tel_interval * 3)
-        
+
         node_data = {
             "node_id": node.node_id, "room_id": node.room_id, "gateway_id": node.gateway_id,
             "device_type": node.device_type, "device_name": node.device_name,
-            "status": node.status, 
+            "status": node.status,
             "sampling_interval": caps.get("sampling_interval", 5),
             "telemetry_interval": tel_interval,
             "capabilities": caps,
             "device_state": "OFF"
         }
-        
+
         if node.status != "pending":
             gw_status = mqtt_shared.gateway_statuses.get(node.gateway_id, "offline")
-            
+
             if gw_status != "online":
                 node_data["status"] = "offline"
             else:
-                latest_tel = db.query(Telemetry).filter(Telemetry.node_id == node.node_id).order_by(desc(Telemetry.telemetry_id)).first()
-                if latest_tel and latest_tel.timestamp:
+                last_seen = mqtt_shared.node_last_seen.get(node.node_id)
+                latest_tel = None
+
+                # Query DB เฉพาะเมื่อจำเป็น ยังไม่มี Heartbeat ใน RAM หรือยังไม่มี State ใน RAM
+                if last_seen is None or node.node_id not in mqtt_shared.node_last_states:
+                    latest_tel = db.query(Telemetry).filter(Telemetry.node_id == node.node_id).order_by(desc(Telemetry.telemetry_id)).first()
+
+                # 1. เช็กสถานะ Online/Offline จาก Heartbeat ใน RAM ก่อน
+                if last_seen:
+                    diff = abs((datetime.utcnow() - last_seen).total_seconds())
+                    node_data["status"] = "offline" if diff > timeout_threshold else "active"
+                elif latest_tel and latest_tel.timestamp:
                     try:
-                        time_str = latest_tel.timestamp.replace("Z", "")
-                        tel_time = datetime.fromisoformat(time_str) if isinstance(latest_tel.timestamp, str) else latest_tel.timestamp.replace(tzinfo=None)
+                        if isinstance(latest_tel.timestamp, str):
+                            tel_time = datetime.fromisoformat(latest_tel.timestamp.replace("Z", ""))
+                        else:
+                            tel_time = latest_tel.timestamp.replace(tzinfo=None)
                         diff_utc = abs((datetime.utcnow() - tel_time).total_seconds())
                         diff_local = abs((datetime.now() - tel_time).total_seconds())
                         actual_diff = min(diff_utc, diff_local)
-                        
                         node_data["status"] = "offline" if actual_diff > timeout_threshold else "active"
-                        
-                        t_data = latest_tel.data
-                        if isinstance(t_data, str):
-                            try: t_data = json.loads(t_data)
-                            except: t_data = {}
-                        if isinstance(t_data, dict):
-                            node_data["device_state"] = t_data.get("status", "OFF")
-                    except Exception: node_data["status"] = "offline"
-                else: 
+                    except Exception:
+                        node_data["status"] = "offline"
+                else:
                     node_data["status"] = "offline"
+
+                # 2. อ่านสถานะ ON/OFF ล่าสุดจาก RAM ก่อน Fallback ไปอ่านจาก DB
+                if node.node_id in mqtt_shared.node_last_states:
+                    node_data["device_state"] = mqtt_shared.node_last_states[node.node_id]
+                elif latest_tel and latest_tel.data:
+                    t_data = latest_tel.data
+                    if isinstance(t_data, str):
+                        try: t_data = json.loads(t_data)
+                        except: t_data = {}
+                    if isinstance(t_data, dict):
+                        node_data["device_state"] = t_data.get("status", "OFF")
         result.append(node_data)
     return result
 
@@ -130,6 +147,8 @@ def delete_device(device_id: str, db: Session = Depends(get_db)):
     db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
     device.status = "rejected"
     db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was rejected/deleted and added to blocklist"))
+    mqtt_shared.node_last_seen.pop(device_id, None)
+    mqtt_shared.node_last_states.pop(device_id, None)
     db.commit()
     return {"message": "Device rejected and moved to blocklist"}
 
@@ -164,6 +183,8 @@ def restore_device_api(device_id: str, db: Session = Depends(get_db)):
         mqtt_shared.mqtt_client.publish(topic, json.dumps(payload))
     device.status = "pending"
     db.add(SystemLog(source="MANUAL", log_type="INFO", message=f"Admin restored {device_id} from blocklist. RESET command sent to hardware."))
+    mqtt_shared.node_last_seen.pop(device_id, None)
+    mqtt_shared.node_last_states.pop(device_id, None)
     db.commit()
     return {"status": "success"}
 
@@ -174,6 +195,8 @@ def reject_device_api(device_id: str, db: Session = Depends(get_db)):
         raise HTTPException(status_code=404)
     device.status = "rejected"
     db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was rejected and moved to blocklist"))
+    mqtt_shared.node_last_seen.pop(device_id, None)
+    mqtt_shared.node_last_states.pop(device_id, None)
     db.commit()
     return {"status": "success"}
 
@@ -191,5 +214,7 @@ def factory_reset_device_api(device_id: str, db: Session = Depends(get_db)):
     db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
     db.delete(device)
     db.add(SystemLog(source="MANUAL", log_type="WARN", message=f"Admin triggered Factory Reset for {device_id}"))
+    mqtt_shared.node_last_seen.pop(device_id, None)
+    mqtt_shared.node_last_states.pop(device_id, None)
     db.commit()
     return {"status": "success"}
