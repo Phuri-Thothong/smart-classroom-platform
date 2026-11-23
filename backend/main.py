@@ -128,7 +128,7 @@ def check_schedules_and_trigger():
         current_day = (now.isoweekday() % 7) + 1 
         current_time = now.time()
         todays_classes = db.query(ClassSchedule).filter(ClassSchedule.day_of_week == current_day).all()
-        
+
         for cls in todays_classes:
             start_datetime = datetime.combine(now.date(), cls.start_time)
             end_datetime = datetime.combine(now.date(), cls.end_time)
@@ -214,7 +214,7 @@ def on_message(client, userdata, msg):
                     ))
                     db.add(SystemLog(source="SYSTEM", log_type="INFO", message=f"New device {device_id} detected via {new_gateway_id}"))
                 else:
-                    node.room_id = room_id
+                    # node.room_id = room_id
                     node.gateway_id = new_gateway_id
                     node.device_type = data.get("device_type", node.device_type)
                     if incoming_caps:

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, AlertTriangle, Cpu } from 'lucide-react';
+import { X, AlertTriangle, Cpu, CheckSquare } from 'lucide-react';
 
 // --- กำหนดกลุ่มพินให้เหมาะสมกับ ESP32 38-Pin ---
 const SAFE_OUTPUT_PINS = [2, 4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 32, 33];
@@ -7,6 +7,15 @@ const INPUT_ONLY_PINS = [34, 35, 36, 39];
 const STRAPPING_PINS = [0, 5, 12, 15];
 
 export default function DeviceSetupModal({ isOpen, onClose, onSave, device, roomsList = [] }) {
+  const [activeSensors, setActiveSensors] = useState(() => {
+    let caps = typeof device?.capabilities === 'string' ? JSON.parse(device.capabilities) : (device?.capabilities || {});
+    let gpio = caps.gpio_config || {};
+    return {
+      dht: gpio.has_dht !== undefined ? gpio.has_dht === 1 : true,
+      light: gpio.has_light !== undefined ? gpio.has_light === 1 : true
+    };
+  });
+
   const [formData, setFormData] = useState(() => {
     if (!device) return { room_id: '', device_name: '', sampling_interval: 5, telemetry_interval: 8, gpio_config: {} };
 
@@ -46,13 +55,18 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
 
   const handleSave = (e) => {
     e.preventDefault();
+    let final_gpio_config = { ...formData.gpio_config };
+    if (device.device_type === 'multi_sensor') {
+      final_gpio_config.has_dht = activeSensors.dht ? 1 : 0;
+      final_gpio_config.has_light = activeSensors.light ? 1 : 0;
+    }
     const configData = {
       device_id: device.node_id,
       room_id: formData.room_id,
       device_name: formData.device_name,
       sampling_interval: parseInt(formData.sampling_interval),
       telemetry_interval: parseInt(formData.telemetry_interval),
-      gpio_config: formData.gpio_config
+      gpio_config: final_gpio_config
     };
     onSave(configData, isPending);
   };
@@ -131,55 +145,73 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
             </div>
 
             <div className="border-t border-slate-100 pt-5"></div>
+            {device.device_type === 'multi_sensor' && (
+              <div className="bg-blue-50/50 p-4 rounded-lg border border-blue-100 space-y-3 mb-4">
+                <div className="flex items-center gap-2 text-blue-800">
+                  <CheckSquare size={18} />
+                  <h4 className="text-sm font-semibold">Installed Sensors</h4>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <label className="flex items-center gap-2 text-sm text-slate-600 opacity-70">
+                    <input type="checkbox" checked={true} disabled className="rounded text-blue-600 cursor-not-allowed" />
+                    <span>HLK-LD2410 Radar (Occupancy - Required)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={activeSensors.dht} onChange={e => setActiveSensors({...activeSensors, dht: e.target.checked})} className="rounded text-blue-600 cursor-pointer" />
+                    <span>DHT22 (Temperature & Humidity)</span>
+                  </label>
+                  <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                    <input type="checkbox" checked={activeSensors.light} onChange={e => setActiveSensors({...activeSensors, light: e.target.checked})} className="rounded text-blue-600 cursor-pointer" />
+                    <span>BH1750 (Light Lux)</span>
+                  </label>
+                </div>
+              </div>
+            )}
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-slate-800">
                   <Cpu size={18} className="text-blue-600" />
-                  <h4 className="text-sm font-semibold">Hardware Configuration (ESP32 38-Pin)</h4>
+                  <h4 className="text-sm font-semibold">Hardware Configuration</h4>
                 </div>
                 <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase font-bold tracking-wider">{device.device_type}</span>
               </div>
               
-              <p className="text-xs text-slate-500">Select safe GPIO pins for your 38-pin DevKit board.</p>
-
               <div className="grid grid-cols-2 gap-4 mt-2">
-                {Object.keys(formData.gpio_config).map((pinKey) => (
-                  <div key={pinKey}>
-                    <label className="block text-xs font-semibold text-slate-600 capitalize mb-1">
-                      {pinKey.replace('_', ' ')}
-                    </label>
-                    <select 
-                      value={formData.gpio_config[pinKey]} 
-                      onChange={e => handleGpioChange(pinKey, e.target.value)}
-                      className="w-full border border-slate-300 rounded-md text-sm p-2 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 font-mono bg-slate-50"
-                    >
-                      <optgroup label="Safe Output Pins">
-                        {SAFE_OUTPUT_PINS.map(pin => <option key={`safe-${pin}`} value={pin}>GPIO {pin}</option>)}
-                      </optgroup>
-                      <optgroup label="Input-Only Pins (Sensors)">
-                        {INPUT_ONLY_PINS.map(pin => <option key={`in-${pin}`} value={pin}>GPIO {pin}</option>)}
-                      </optgroup>
-                      <optgroup label="Strapping Pins (Caution)">
-                        {STRAPPING_PINS.map(pin => <option key={`strap-${pin}`} value={pin}>GPIO {pin}</option>)}
-                      </optgroup>
-                    </select>
-                  </div>
-                ))}
+                {Object.keys(formData.gpio_config).map((pinKey) => {
+                  if (pinKey === 'active_sensors') return null; 
+                  if (pinKey === 'dht_pin' && !activeSensors.dht) return null;
+                  if ((pinKey === 'sda_pin' || pinKey === 'scl_pin') && !activeSensors.light) return null;
+
+                  return (
+                    <div key={pinKey}>
+                      <label className="block text-xs font-semibold text-slate-600 capitalize mb-1">
+                        {pinKey.replace('_', ' ')}
+                      </label>
+                      <select 
+                        value={formData.gpio_config[pinKey]} 
+                        onChange={e => handleGpioChange(pinKey, e.target.value)}
+                        className="w-full border border-slate-300 rounded-md text-sm p-2 outline-none focus:border-blue-500 font-mono bg-slate-50"
+                      >
+                        <optgroup label="Safe Output Pins">{SAFE_OUTPUT_PINS.map(pin => <option key={`safe-${pin}`} value={pin}>GPIO {pin}</option>)}</optgroup>
+                        <optgroup label="Input-Only Pins">{INPUT_ONLY_PINS.map(pin => <option key={`in-${pin}`} value={pin}>GPIO {pin}</option>)}</optgroup>
+                        <optgroup label="Strapping Pins">{STRAPPING_PINS.map(pin => <option key={`strap-${pin}`} value={pin}>GPIO {pin}</option>)}</optgroup>
+                      </select>
+                    </div>
+                  )
+                })}
               </div>
 
               {hasWarning && (
                 <div className="mt-3 bg-orange-50 text-orange-700 p-2.5 rounded-md text-xs flex items-start gap-2 border border-orange-200">
                   <AlertTriangle size={16} className="shrink-0" />
-                  <span><strong>Caution:</strong> Selecting a Strapping Pin (0, 5, 12, 15) may affect boot mode on ESP32.</span>
+                  <span><strong>Caution:</strong> Selecting a Strapping Pin may affect boot mode.</span>
                 </div>
               )}
             </div>
           </div>
 
           <div className="px-6 py-4 border-t border-slate-100 bg-slate-50 flex justify-end gap-3 shrink-0">
-            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors shadow-sm">
-              Cancel
-            </button>
+            <button type="button" onClick={onClose} className="px-5 py-2.5 text-sm font-medium text-slate-600 bg-white border border-slate-300 hover:bg-slate-50 rounded-md transition-colors">Cancel</button>
             <button type="submit" className="px-5 py-2.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md shadow-sm transition-colors">
               {isPending ? 'Approve & Save' : 'Save Config'}
             </button>

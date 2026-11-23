@@ -83,12 +83,52 @@ export default function DashboardTab({
     );
   };
 
+  const availableMetrics = useMemo(() => {
+    const metrics = new Set();
+    filteredDevices.forEach(d => {
+      if (d.status === 'pending' || d.status === 'rejected') return;
+      if (d.device_type === 'energy_node') {
+        metrics.add('power');
+      } else if (d.device_type === 'multi_sensor') {
+        let caps = typeof d.capabilities === 'string' ? JSON.parse(d.capabilities) : (d.capabilities || {});
+        let gpio = caps.gpio_config || {};
+        const hasDht = gpio.has_dht !== undefined ? gpio.has_dht === 1 : true;
+        const hasLight = gpio.has_light !== undefined ? gpio.has_light === 1 : true;
+        if (hasDht) {
+          metrics.add('temperature');
+          metrics.add('humidity');
+        }
+        if (hasLight) {
+          metrics.add('light_lux');
+        }
+      }
+    });
+    return Array.from(metrics);
+  }, [filteredDevices]);
+  const metricsString = availableMetrics.join(',');
+  const [prevMetricsStr, setPrevMetricsStr] = useState(metricsString);
+  if (metricsString !== prevMetricsStr) {
+    setPrevMetricsStr(metricsString);
+    if (availableMetrics.length > 0 && !availableMetrics.includes(selectedMetric)) {
+      setSelectedMetric(availableMetrics[0]);
+    }
+  }
+
   const graphNodes = useMemo(() => {
     return filteredDevices.filter(d => {
       if (d.status === 'pending') return false;
-      if (selectedMetric === 'power') return d.device_type === 'energy_node';
+      if (selectedMetric === 'power') return d.device_type === 'energy_node';  
       if (['temperature', 'humidity', 'light_lux'].includes(selectedMetric)) {
-        return d.device_type === 'multi_sensor';
+        if (d.device_type !== 'multi_sensor') return false;
+        
+        let caps = typeof d.capabilities === 'string' ? JSON.parse(d.capabilities) : (d.capabilities || {});
+        let gpio = caps.gpio_config || {};
+        
+        const hasDht = gpio.has_dht !== undefined ? gpio.has_dht === 1 : true;
+        const hasLight = gpio.has_light !== undefined ? gpio.has_light === 1 : true;
+        
+        if ((selectedMetric === 'temperature' || selectedMetric === 'humidity') && hasDht) return true;
+        if (selectedMetric === 'light_lux' && hasLight) return true;
       }
       return false;
     });
@@ -114,15 +154,15 @@ export default function DashboardTab({
           const formattedData = data.map(item => {
             const sensorData = typeof item.data === 'string' ? JSON.parse(item.data) : item.data;
             const date = new Date(item.timestamp);
-            let value = 0;
-            if (selectedMetric === 'power') {
-              value = sensorData.power_usage_watts || 0;
-            } else if (selectedMetric === 'temperature') {
-              value = sensorData.temperature || 0;
-            } else if (selectedMetric === 'humidity') {
-              value = sensorData.humidity || 0;
-            } else if (selectedMetric === 'light_lux') {
-              value = sensorData.light_lux || 0;
+            let value = null; 
+            if (selectedMetric === 'power' && sensorData.power_usage_watts !== undefined) {
+              value = sensorData.power_usage_watts;
+            } else if (selectedMetric === 'temperature' && sensorData.temperature !== undefined) {
+              value = sensorData.temperature;
+            } else if (selectedMetric === 'humidity' && sensorData.humidity !== undefined) {
+              value = sensorData.humidity;
+            } else if (selectedMetric === 'light_lux' && sensorData.light_lux !== undefined) {
+              value = sensorData.light_lux;
             }
             return {
               time: date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
@@ -533,12 +573,14 @@ export default function DashboardTab({
             <select
               value={selectedMetric}
               onChange={(e) => setSelectedMetric(e.target.value)}
-              className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-1.5 outline-none font-semibold text-slate-700"
+              disabled={availableMetrics.length === 0}
+              className="text-sm border-slate-300 rounded-md shadow-sm bg-slate-50 focus:ring focus:ring-blue-200 px-3 py-1.5 outline-none font-semibold text-slate-700 disabled:opacity-50"
             >
-              <option value="power">⚡ Power (Watts)</option>
-              <option value="temperature">🌡️ Temperature (°C)</option>
-              <option value="humidity">💧 Humidity (%)</option>
-              <option value="light_lux">☀️ Light (Lux)</option>
+              {availableMetrics.includes('power') && <option value="power">⚡ Power (Watts)</option>}
+              {availableMetrics.includes('temperature') && <option value="temperature">🌡️ Temperature (°C)</option>}
+              {availableMetrics.includes('humidity') && <option value="humidity">💧 Humidity (%)</option>}
+              {availableMetrics.includes('light_lux') && <option value="light_lux">☀️ Light (Lux)</option>}
+              {availableMetrics.length === 0 && <option value="">No Sensors Available</option>}
             </select>
 
             {/* 2. Dropdown เลือกโหนด (จะเปลี่ยนรายการอัตโนมัติตาม Metric ที่เลือก) */}
