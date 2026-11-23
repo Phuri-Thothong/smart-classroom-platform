@@ -6,10 +6,30 @@ const SAFE_OUTPUT_PINS = [2, 4, 13, 14, 16, 17, 18, 19, 21, 22, 23, 25, 26, 27, 
 const INPUT_ONLY_PINS = [34, 35, 36, 39];
 const STRAPPING_PINS = [0, 5, 12, 15];
 
+// คีย์ Flag ที่ฝากไว้ใน gpio_config (ไม่ใช่หมายเลขขา GPIO)
+const GPIO_FLAG_KEYS = ['active_sensors', 'has_dht', 'has_light'];
+
+// ค่าเริ่มต้นของรอบส่งข้อมูลแยกตามประเภทโหนด (ให้ตรงกับ Backend & Firmware)
+const getDefaultTelemetryInterval = (type) => {
+  if (type === 'lighting' || type === 'air_control') return 120; // Heartbeat ทุก 2 นาที
+  return 300; // 5 นาที สำหรับ energy_node, multi_sensor, occupancy
+};
+
+const parseCapabilities = (rawCaps) => {
+  if (!rawCaps) return {};
+  try {
+    let parsed = typeof rawCaps === 'string' ? JSON.parse(rawCaps) : rawCaps;
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
 export default function DeviceSetupModal({ isOpen, onClose, onSave, device, roomsList = [] }) {
   const [activeSensors, setActiveSensors] = useState(() => {
-    let caps = typeof device?.capabilities === 'string' ? JSON.parse(device.capabilities) : (device?.capabilities || {});
-    let gpio = caps.gpio_config || {};
+    const caps = parseCapabilities(device?.capabilities);
+    const gpio = caps.gpio_config || {};
     return {
       dht: gpio.has_dht !== undefined ? gpio.has_dht === 1 : true,
       light: gpio.has_light !== undefined ? gpio.has_light === 1 : true
@@ -17,16 +37,17 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
   });
 
   const [formData, setFormData] = useState(() => {
-    if (!device) return { room_id: '', device_name: '', sampling_interval: 5, telemetry_interval: 8, gpio_config: {} };
-
-    let caps = {};
-    if (device.capabilities) {
-      caps = typeof device.capabilities === 'string' ? JSON.parse(device.capabilities) : device.capabilities;
+    if (!device) {
+      return { room_id: '', device_name: '', sampling_interval: 5, telemetry_interval: 300, gpio_config: {} };
     }
 
-    let defaultGpio = caps.gpio_config || {};
-    
-    if (Object.keys(defaultGpio).length === 0) {
+    const caps = parseCapabilities(device.capabilities);
+    let defaultGpio = caps.gpio_config ? { ...caps.gpio_config } : {};
+
+    // เช็กว่ามีคีย์ขา GPIO จริงหรือไม่ (ไม่นับคีย์ Flag)
+    const hasRealPins = Object.keys(defaultGpio).some(k => !GPIO_FLAG_KEYS.includes(k));
+
+    if (!hasRealPins) {
       const type = device.device_type;
       if (type === 'lighting' || type === 'air_control') {
         defaultGpio = { control_pin: 26 };
@@ -39,11 +60,13 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
       }
     }
 
+    const defaultTel = getDefaultTelemetryInterval(device.device_type);
+
     return {
       room_id: device.room_id || (roomsList.length > 0 ? roomsList[0].room_id : ''),
       device_name: device.device_name || '',
       sampling_interval: caps.sampling_interval || device.sampling_interval || 5,
-      telemetry_interval: caps.telemetry_interval || device.telemetry_interval || 8,
+      telemetry_interval: caps.telemetry_interval || device.telemetry_interval || defaultTel,
       gpio_config: defaultGpio
     };
   });
@@ -51,6 +74,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
   if (!isOpen || !device) return null;
 
   const isPending = device.status === 'pending';
+  const isControlNode = device.device_type === 'lighting' || device.device_type === 'air_control';
   const isVirtualNode = device.firmware_version?.includes('GW') || device.node_id?.includes('-L') || device.node_id?.includes('-A');
 
   const handleSave = (e) => {
@@ -64,8 +88,8 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
       device_id: device.node_id,
       room_id: formData.room_id,
       device_name: formData.device_name,
-      sampling_interval: parseInt(formData.sampling_interval),
-      telemetry_interval: parseInt(formData.telemetry_interval),
+      sampling_interval: parseInt(formData.sampling_interval, 10),
+      telemetry_interval: parseInt(formData.telemetry_interval, 10),
       gpio_config: final_gpio_config
     };
     onSave(configData, isPending);
@@ -74,16 +98,22 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
   const handleGpioChange = (key, value) => {
     setFormData(prev => ({
       ...prev,
-      gpio_config: { ...prev.gpio_config, [key]: parseInt(value) }
+      gpio_config: { ...prev.gpio_config, [key]: parseInt(value, 10) }
     }));
   };
 
-  const hasWarning = Object.values(formData.gpio_config).some(pin => STRAPPING_PINS.includes(pin));
+  // ตรวจ Strapping Pin เฉพาะขา GPIO ที่เปิดใช้งานจริง (ข้าม Flag has_dht / has_light ที่เป็น 0/1)
+  const hasWarning = Object.entries(formData.gpio_config).some(([key, pin]) => {
+    if (GPIO_FLAG_KEYS.includes(key)) return false;
+    if (key === 'dht_pin' && !activeSensors.dht) return false;
+    if ((key === 'sda_pin' || key === 'scl_pin') && !activeSensors.light) return false;
+    return STRAPPING_PINS.includes(Number(pin));
+  });
 
   return (
     <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in duration-200">
-        
+
         <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 shrink-0 bg-white">
           <h3 className="text-lg font-semibold text-slate-800">
             {isPending ? 'Approve Device' : 'Device Configuration'}
@@ -97,21 +127,21 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
           <div className="p-6 space-y-5 overflow-y-auto custom-scrollbar">
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Device ID</label>
-              <input type="text" disabled value={device.node_id} 
+              <input type="text" disabled value={device.node_id}
                 className="w-full border border-slate-200 rounded-md text-sm p-2.5 bg-slate-50 text-slate-500" />
             </div>
 
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Device Name</label>
-              <input type="text" placeholder="e.g. Front Air Conditioner" required 
-                value={formData.device_name} onChange={e => setFormData({...formData, device_name: e.target.value})} 
+              <input type="text" placeholder="e.g. Front Air Conditioner" required
+                value={formData.device_name} onChange={e => setFormData({ ...formData, device_name: e.target.value })}
                 className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
             </div>
 
             <div>
               <label className="block text-sm font-semibold text-slate-700 mb-1.5">Assign Room</label>
               {isPending || isVirtualNode ? (
-                <select required value={formData.room_id} onChange={e => setFormData({...formData, room_id: e.target.value})} 
+                <select required value={formData.room_id} onChange={e => setFormData({ ...formData, room_id: e.target.value })}
                   disabled={isVirtualNode}
                   className={`w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white ${isVirtualNode ? 'bg-slate-100 text-slate-500 cursor-not-allowed' : ''}`}>
                   <option value="">Select Room...</option>
@@ -129,19 +159,28 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Sampling (sec)</label>
-                <input type="number" min="1" required 
-                  value={formData.sampling_interval} onChange={e => setFormData({...formData, sampling_interval: e.target.value})} 
-                  className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+            <div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">Sampling (sec)</label>
+                  <input type="number" min="1" required
+                    value={formData.sampling_interval} onChange={e => setFormData({ ...formData, sampling_interval: e.target.value })}
+                    className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                </div>
+                <div>
+                  <label className="block text-sm font-semibold text-slate-700 mb-1.5">
+                    {isControlNode ? 'Heartbeat (sec)' : 'Telemetry (sec)'}
+                  </label>
+                  <input type="number" min="1" required
+                    value={formData.telemetry_interval} onChange={e => setFormData({ ...formData, telemetry_interval: e.target.value })}
+                    className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-semibold text-slate-700 mb-1.5">Telemetry (sec)</label>
-                <input type="number" min="1" required 
-                  value={formData.telemetry_interval} onChange={e => setFormData({...formData, telemetry_interval: e.target.value})} 
-                  className="w-full border border-slate-300 rounded-md text-sm p-2.5 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
-              </div>
+              <p className="text-[11px] text-slate-400 mt-1.5">
+                {isControlNode
+                  ? 'Recommended: 120s (state changes are logged to DB immediately).'
+                  : 'Recommended: 300s (radar & sudden light changes trigger immediately).'}
+              </p>
             </div>
 
             <div className="border-t border-slate-100 pt-5"></div>
@@ -157,16 +196,17 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
                     <span>HLK-LD2410 Radar (Occupancy - Required)</span>
                   </label>
                   <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input type="checkbox" checked={activeSensors.dht} onChange={e => setActiveSensors({...activeSensors, dht: e.target.checked})} className="rounded text-blue-600 cursor-pointer" />
+                    <input type="checkbox" checked={activeSensors.dht} onChange={e => setActiveSensors({ ...activeSensors, dht: e.target.checked })} className="rounded text-blue-600 cursor-pointer" />
                     <span>DHT22 (Temperature & Humidity)</span>
                   </label>
                   <label className="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-                    <input type="checkbox" checked={activeSensors.light} onChange={e => setActiveSensors({...activeSensors, light: e.target.checked})} className="rounded text-blue-600 cursor-pointer" />
+                    <input type="checkbox" checked={activeSensors.light} onChange={e => setActiveSensors({ ...activeSensors, light: e.target.checked })} className="rounded text-blue-600 cursor-pointer" />
                     <span>BH1750 (Light Lux)</span>
                   </label>
                 </div>
               </div>
             )}
+
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2 text-slate-800">
@@ -175,10 +215,10 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
                 </div>
                 <span className="text-[10px] bg-blue-50 text-blue-600 px-2 py-0.5 rounded uppercase font-bold tracking-wider">{device.device_type}</span>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4 mt-2">
                 {Object.keys(formData.gpio_config).map((pinKey) => {
-                  if (pinKey === 'active_sensors') return null; 
+                  if (GPIO_FLAG_KEYS.includes(pinKey)) return null;
                   if (pinKey === 'dht_pin' && !activeSensors.dht) return null;
                   if ((pinKey === 'sda_pin' || pinKey === 'scl_pin') && !activeSensors.light) return null;
 
@@ -187,8 +227,8 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
                       <label className="block text-xs font-semibold text-slate-600 capitalize mb-1">
                         {pinKey.replace('_', ' ')}
                       </label>
-                      <select 
-                        value={formData.gpio_config[pinKey]} 
+                      <select
+                        value={formData.gpio_config[pinKey]}
                         onChange={e => handleGpioChange(pinKey, e.target.value)}
                         className="w-full border border-slate-300 rounded-md text-sm p-2 outline-none focus:border-blue-500 font-mono bg-slate-50"
                       >
@@ -197,7 +237,7 @@ export default function DeviceSetupModal({ isOpen, onClose, onSave, device, room
                         <optgroup label="Strapping Pins">{STRAPPING_PINS.map(pin => <option key={`strap-${pin}`} value={pin}>GPIO {pin}</option>)}</optgroup>
                       </select>
                     </div>
-                  )
+                  );
                 })}
               </div>
 
