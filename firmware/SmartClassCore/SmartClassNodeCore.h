@@ -44,7 +44,7 @@ public:
     _prefs.begin("smartclass", true);
     _isConfigured      = _prefs.getBool("is_configured", false);
     _samplingInterval  = _prefs.getInt("spl_interval", 5);
-    _telemetryInterval = _prefs.getInt("tel_interval", 10);
+    _telemetryInterval = _prefs.getInt("tel_interval", 300);
     int savedChannel   = _prefs.getInt("channel", 0);
 
     _pin1 = _prefs.getInt("pin_1", defaultPin1);
@@ -325,7 +325,7 @@ private:
   bool _isConfigured = false;
   bool _isChannelLocked = false;
   int _samplingInterval = 5;
-  int _telemetryInterval = 10;
+  int _telemetryInterval = 300;
 
   uint8_t _pin1 = 32;
   uint8_t _pin2 = 255;
