@@ -181,22 +181,29 @@ def on_message(client, userdata, msg):
     if "/gateways/" in topic and topic.endswith("/status"):
         try:
             gateway_id = topic.split("/")[-2]
+            # กรณีมีการล้าง Retained Message ให้ลบออกจาก RAM ทันที
+            if not payload.strip():
+                mqtt_shared.gateway_statuses.pop(gateway_id, None)
+                return
             new_status = json.loads(payload).get("status", "offline")
             old_status = mqtt_shared.gateway_statuses.get(gateway_id)
-            if old_status != new_status:
+            # บันทึก SystemLog เฉพาะเหตุการณ์สดไม่บันทึกข้อความค้างตอนรีสตาร์ท
+            if old_status != new_status and not msg.retain:
                 db = SessionLocal()
                 try:
                     log_type = "INFO" if new_status == "online" else "ERROR"
                     db.add(SystemLog(
-                        source="SYSTEM", 
-                        log_type=log_type, 
+                        source="SYSTEM",
+                        log_type=log_type,
                         message=f"Gateway {gateway_id} is now {new_status.upper()}"
                     ))
                     db.commit()
                 finally:
                     db.close()
+            # อัปเดตสถานะใน RAM เสมอ เพื่อให้กล่อง System Alerts บนหน้าเว็บแสดงสถานะตรงความจริง
             mqtt_shared.gateway_statuses[gateway_id] = new_status
-        except Exception: pass
+        except Exception:
+            pass
         return
 
     try:
