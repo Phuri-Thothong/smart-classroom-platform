@@ -1,3 +1,9 @@
-fastapi
-uvicorn
-paho-mqtt
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+SQLAlchemy==2.0.52
+psycopg2-binary==2.9.12
+paho-mqtt==2.1.0
+APScheduler==3.11.3
+python-dotenv==1.2.4
+pydantic==2.13.4
+requests
