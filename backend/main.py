@@ -15,11 +15,12 @@ from dotenv import load_dotenv
 
 # --- Import Database Tools & Shared Variables ---
 from database import engine, Base, SessionLocal, get_db
-from models import Node, Room, Telemetry, AutomationRule, ClassSchedule, SystemLog
+from models import Node, Room, Telemetry, AutomationRule, ClassSchedule, SystemLog, User
+from auth import hash_password, get_current_user
 import mqtt_shared
 
 # --- Import Routers ---
-from routers import rooms, devices, gateways, automation
+from routers import rooms, devices, gateways, automation, auth as auth_router
 
 # --- โหลดค่า Configuration จาก .env ---
 load_dotenv()
@@ -405,31 +406,66 @@ def start_mqtt():
 # =========================================================
 # 3. APP INITIALIZATION & LIFESPAN
 # =========================================================
+def seed_default_admin():
+    db = SessionLocal()
+    try:
+        if db.query(User).count() == 0:
+            default_user = os.getenv("DEFAULT_ADMIN_USER", "admin").strip()
+            default_pass = os.getenv("DEFAULT_ADMIN_PASSWORD", "admin1234")
+            db.add(User(
+                username=default_user,
+                full_name="System Administrator",
+                hashed_password=hash_password(default_pass),
+                role="admin",
+                is_active=True,
+            ))
+            db.commit()
+            print(f"[Auth] Seeded default admin user: '{default_user}'")
+    finally:
+        db.close()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    seed_default_admin()
     threading.Thread(target=start_mqtt, daemon=True).start()
     scheduler = BackgroundScheduler()
     scheduler.add_job(check_schedules_and_trigger, 'cron', minute='*')
     scheduler.add_job(monitor_node_health, 'interval', seconds=NODE_MONITOR_INTERVAL)
     scheduler.start()
-    yield 
+    yield
     scheduler.shutdown()
 
+CORS_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv(
+        "CORS_ORIGINS",
+        "https://smart-classroom-platform.vercel.app,http://localhost:5173,http://127.0.0.1:5173"
+    ).split(",")
+    if origin.strip()
+]
+
 app = FastAPI(title="Smart Classroom Platform", version="1.0.0", lifespan=lifespan)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=CORS_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/", tags=["Core"])
 def root(): return {"status": "running"}
 
 # --- Include Routers ---
+app.include_router(auth_router.router)
 app.include_router(rooms.router)
 app.include_router(devices.router)
 app.include_router(gateways.router)
 app.include_router(automation.router)
 
 @app.get("/logs", tags=["Logs"])
-def get_system_logs(limit: int = 50, db: Session = Depends(get_db)):
+def get_system_logs(limit: int = 50, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return db.query(SystemLog).order_by(SystemLog.id.desc()).limit(limit).all()
 
 if __name__ == "__main__":

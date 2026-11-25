@@ -1,17 +1,18 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import Room, Node
+from models import Room, Node, User
 from schemas import RoomCreate
+from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="/rooms", tags=["Rooms"])
 
 @router.get("")
-def get_rooms(db: Session = Depends(get_db)):
+def get_rooms(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return db.query(Room).all()
 
 @router.post("")
-def create_room(room: RoomCreate, db: Session = Depends(get_db)):
+def create_room(room: RoomCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     if db.query(Room).filter(Room.room_id == room.room_id).first():
         raise HTTPException(status_code=400, detail="Room ID already exists")
     new_room = Room(room_id=room.room_id, room_name=room.room_name)
@@ -21,9 +22,9 @@ def create_room(room: RoomCreate, db: Session = Depends(get_db)):
     return new_room
 
 @router.delete("/{room_id}")
-def delete_room(room_id: str, db: Session = Depends(get_db)):
+def delete_room(room_id: str, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     room = db.query(Room).filter(Room.room_id == room_id).first()
-    if not room: 
+    if not room:
         raise HTTPException(status_code=404, detail="Room not found")
     db.query(Node).filter(Node.room_id == room_id).update({"room_id": None})
     db.delete(room)

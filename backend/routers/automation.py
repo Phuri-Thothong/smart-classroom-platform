@@ -2,34 +2,36 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from database import get_db
-from models import AutomationRule, ClassSchedule
+from models import AutomationRule, ClassSchedule, User
 from schemas import RuleCreate, ScheduleCreate
+from auth import get_current_user, require_admin
 
 router = APIRouter(prefix="", tags=["Automation"])
 
 @router.get("/rules")
-def get_rules(db: Session = Depends(get_db)): 
+def get_rules(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return db.query(AutomationRule).all()
 
 @router.post("/rules")
-def create_rule(rule: RuleCreate, db: Session = Depends(get_db)):
-    db_rule = AutomationRule(**rule.dict())
+def create_rule(rule: RuleCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    db_rule = AutomationRule(**rule.model_dump())
     db.add(db_rule)
     db.commit()
+    db.refresh(db_rule)
     return db_rule
 
 @router.delete("/rules/{rule_id}")
-def delete_rule(rule_id: int, db: Session = Depends(get_db)):
+def delete_rule(rule_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     db.query(AutomationRule).filter(AutomationRule.rule_id == rule_id).delete()
     db.commit()
     return {"status": "success"}
 
 @router.get("/schedules")
-def get_schedules(db: Session = Depends(get_db)): 
+def get_schedules(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return db.query(ClassSchedule).all()
 
 @router.post("/schedules")
-def create_schedule(schedule: ScheduleCreate, db: Session = Depends(get_db)):
+def create_schedule(schedule: ScheduleCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     try:
         st_time = datetime.strptime(schedule.start_time, "%H:%M:%S").time()
         en_time = datetime.strptime(schedule.end_time, "%H:%M:%S").time()
@@ -61,13 +63,13 @@ def create_schedule(schedule: ScheduleCreate, db: Session = Depends(get_db)):
     return db_schedule
 
 @router.delete("/schedules/{schedule_id}")
-def delete_schedule(schedule_id: int, db: Session = Depends(get_db)):
+def delete_schedule(schedule_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     db.query(ClassSchedule).filter(ClassSchedule.id == schedule_id).delete()
     db.commit()
     return {"status": "success"}
 
 @router.put("/schedules/{schedule_id}")
-def update_schedule(schedule_id: int, schedule: ScheduleCreate, db: Session = Depends(get_db)):
+def update_schedule(schedule_id: int, schedule: ScheduleCreate, db: Session = Depends(get_db), _: User = Depends(require_admin)):
     try:
         st_time = datetime.strptime(schedule.start_time, "%H:%M:%S").time()
         en_time = datetime.strptime(schedule.end_time, "%H:%M:%S").time()

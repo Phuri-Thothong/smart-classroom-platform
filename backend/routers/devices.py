@@ -10,8 +10,9 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc
 from sqlalchemy.orm.attributes import flag_modified
 from database import get_db
-from models import Node, Telemetry, SystemLog
+from models import Node, Telemetry, SystemLog, User
 from schemas import DeviceConfig
+from auth import get_current_user, require_admin
 import mqtt_shared
 from dotenv import load_dotenv
 
@@ -31,12 +32,10 @@ router = APIRouter(prefix="/devices", tags=["Devices"])
 
 
 def to_bangkok_iso(ts) -> Optional[str]:
-    """แปลง datetime หรือ ISO string (ทั้ง UTC และ Naive Bangkok เดิม) ให้เป็น ISO-8601 โซน +07:00"""
     if not ts:
         return None
     try:
         if isinstance(ts, datetime):
-            # node_last_seen ใน RAM ถูกเก็บด้วย datetime.utcnow() (naive UTC)
             dt = ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts
             return dt.astimezone(BANGKOK_TZ).isoformat()
         if isinstance(ts, str):
@@ -47,7 +46,6 @@ def to_bangkok_iso(ts) -> Optional[str]:
                 dt = datetime.fromisoformat(raw[:-1] + "+00:00")
             else:
                 dt = datetime.fromisoformat(raw)
-                # ข้อมูล Telemetry เดิมที่ไม่มี tzinfo ถูกบันทึกบน TZ=Asia/Bangkok
                 if dt.tzinfo is None:
                     dt = dt.replace(tzinfo=BANGKOK_TZ)
             return dt.astimezone(BANGKOK_TZ).isoformat()
@@ -57,7 +55,6 @@ def to_bangkok_iso(ts) -> Optional[str]:
 
 
 def query_telemetry_records(db: Session, device_id: str, limit: int = 20, time_range: Optional[str] = None):
-    """ดึงข้อมูล Telemetry ตามช่วงเวลา (1h/24h/7d) หรือจำนวนจุดล่าสุด (limit)"""
     query = db.query(Telemetry).filter(Telemetry.node_id == device_id)
     if time_range in RANGE_DELTAS:
         cutoff_str = (datetime.now(BANGKOK_TZ) - RANGE_DELTAS[time_range]).strftime("%Y-%m-%dT%H:%M:%S")
@@ -72,7 +69,7 @@ def query_telemetry_records(db: Session, device_id: str, limit: int = 20, time_r
 
 
 @router.get("")
-def get_devices(db: Session = Depends(get_db)):
+def get_devices(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     nodes = db.query(Node).filter(Node.status != "rejected").all()
     result = []
     for node in nodes:
@@ -108,7 +105,6 @@ def get_devices(db: Session = Depends(get_db)):
             cached_tel = mqtt_shared.node_last_telemetry.get(node.node_id)
             latest_tel = None
 
-            # Query DB เฉพาะเมื่อยังไม่มี Heartbeat หรือค่า Telemetry ล่าสุดใน RAM
             if last_seen is None or cached_tel is None:
                 latest_tel = (
                     db.query(Telemetry)
@@ -129,13 +125,11 @@ def get_devices(db: Session = Depends(get_db)):
 
             node_data["latest_telemetry"] = cached_tel
 
-            # แนบเวลา Last Seen ล่าสุดเป็น ISO (+07:00)
             if last_seen:
                 node_data["last_seen"] = to_bangkok_iso(last_seen)
             elif latest_tel and latest_tel.timestamp:
                 node_data["last_seen"] = to_bangkok_iso(latest_tel.timestamp)
 
-            # 1. เช็กสถานะ Online/Offline
             if gw_status != "online":
                 node_data["status"] = "offline"
             else:
@@ -153,7 +147,6 @@ def get_devices(db: Session = Depends(get_db)):
                 else:
                     node_data["status"] = "offline"
 
-            # 2. อ่านสถานะ ON/OFF ล่าสุดจาก RAM ก่อน Fallback ไปอ่านจาก cached_tel
             if node.node_id in mqtt_shared.node_last_states:
                 node_data["device_state"] = mqtt_shared.node_last_states[node.node_id]
             elif isinstance(cached_tel, dict):
@@ -164,17 +157,22 @@ def get_devices(db: Session = Depends(get_db)):
 
 
 @router.get("/rejected")
-def get_rejected_devices(db: Session = Depends(get_db)):
+def get_rejected_devices(db: Session = Depends(get_db), _: User = Depends(require_admin)):
     return db.query(Node).filter(Node.status == "rejected").all()
 
 
 @router.get("/{device_id}")
-def get_device_api(device_id: str, db: Session = Depends(get_db)):
+def get_device_api(device_id: str, db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return db.query(Node).filter(Node.node_id == device_id).first() or {"error": "Not found"}
 
 
 @router.post("/{device_id}/approve")
-def approve_device_api(device_id: str, config: DeviceConfig, db: Session = Depends(get_db)):
+def approve_device_api(
+    device_id: str,
+    config: DeviceConfig,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
     node = db.query(Node).filter(Node.node_id == device_id).first()
     if not node:
         raise HTTPException(status_code=404, detail="Device not found")
@@ -220,18 +218,23 @@ def approve_device_api(device_id: str, config: DeviceConfig, db: Session = Depen
 
 
 @router.post("/{device_id}/config")
-def update_device_config(device_id: str, config: DeviceConfig, db: Session = Depends(get_db)):
-    return approve_device_api(device_id, config, db)
+def update_device_config(
+    device_id: str,
+    config: DeviceConfig,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    return approve_device_api(device_id, config, db, admin)
 
 
 @router.delete("/{device_id}")
-def delete_device(device_id: str, db: Session = Depends(get_db)):
+def delete_device(device_id: str, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     device = db.query(Node).filter(Node.node_id == device_id).first()
     if not device:
         raise HTTPException(status_code=404)
     db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
     device.status = "rejected"
-    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was rejected/deleted and added to blocklist"))
+    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Admin '{admin.username}' deleted/rejected device {device_id}"))
     mqtt_shared.node_last_seen.pop(device_id, None)
     mqtt_shared.node_last_states.pop(device_id, None)
     mqtt_shared.node_last_telemetry.pop(device_id, None)
@@ -245,6 +248,7 @@ def get_telemetry_api(
     limit: int = 20,
     range: Optional[str] = None,
     db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     return query_telemetry_records(db, device_id, limit, range)
 
@@ -255,12 +259,13 @@ def export_telemetry_csv(
     limit: int = 100,
     range: Optional[str] = None,
     db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
 ):
     rows = query_telemetry_records(db, device_id, limit, range)
-    rows.reverse()  # เรียงเวลาเก่า -> ใหม่ เพื่อนำไปวิเคราะห์ใน Excel/Python ได้ทันที
+    rows.reverse()
 
     output = io.StringIO()
-    output.write("\ufeff")  # UTF-8 BOM ให้ Excel เปิดอ่านได้ไม่เพี้ยน
+    output.write("\ufeff")
     writer = csv.writer(output)
 
     preferred_keys = [
@@ -308,7 +313,12 @@ def export_telemetry_csv(
 
 
 @router.post("/{device_id}/control")
-async def control_device_api(device_id: str, request: Request, db: Session = Depends(get_db)):
+async def control_device_api(
+    device_id: str,
+    request: Request,
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
     body = await request.json()
     action = body.get("action", "OFF")
     if mqtt_shared.mqtt_client:
@@ -316,13 +326,13 @@ async def control_device_api(device_id: str, request: Request, db: Session = Dep
             mqtt_shared.MQTT_COMMAND_TOPIC.format(device_id),
             json.dumps({"type": "command", "payload": {"device_id": device_id, "action": action}}),
         )
-        db.add(SystemLog(source="MANUAL", log_type="ACTION", message=f"Admin turned {action} {device_id}"))
+        db.add(SystemLog(source="MANUAL", log_type="ACTION", message=f"Admin '{admin.username}' turned {action} {device_id}"))
         db.commit()
     return {"status": "success"}
 
 
 @router.post("/{device_id}/restore")
-def restore_device_api(device_id: str, db: Session = Depends(get_db)):
+def restore_device_api(device_id: str, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     device = db.query(Node).filter(Node.node_id == device_id).first()
     if not device:
         raise HTTPException(status_code=404)
@@ -331,7 +341,7 @@ def restore_device_api(device_id: str, db: Session = Depends(get_db)):
         payload = {"type": "command", "payload": {"device_id": device_id, "action": "RESET"}}
         mqtt_shared.mqtt_client.publish(topic, json.dumps(payload))
     device.status = "pending"
-    db.add(SystemLog(source="MANUAL", log_type="INFO", message=f"Admin restored {device_id} from blocklist. RESET command sent to hardware."))
+    db.add(SystemLog(source="MANUAL", log_type="INFO", message=f"Admin '{admin.username}' restored {device_id} from blocklist. RESET command sent."))
     mqtt_shared.node_last_seen.pop(device_id, None)
     mqtt_shared.node_last_states.pop(device_id, None)
     mqtt_shared.node_last_telemetry.pop(device_id, None)
@@ -340,12 +350,12 @@ def restore_device_api(device_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{device_id}/reject")
-def reject_device_api(device_id: str, db: Session = Depends(get_db)):
+def reject_device_api(device_id: str, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     device = db.query(Node).filter(Node.node_id == device_id).first()
     if not device:
         raise HTTPException(status_code=404)
     device.status = "rejected"
-    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Device {device_id} was rejected and moved to blocklist"))
+    db.add(SystemLog(source="SYSTEM", log_type="WARN", message=f"Admin '{admin.username}' rejected device {device_id}"))
     mqtt_shared.node_last_seen.pop(device_id, None)
     mqtt_shared.node_last_states.pop(device_id, None)
     mqtt_shared.node_last_telemetry.pop(device_id, None)
@@ -354,7 +364,7 @@ def reject_device_api(device_id: str, db: Session = Depends(get_db)):
 
 
 @router.post("/{device_id}/factory-reset")
-def factory_reset_device_api(device_id: str, db: Session = Depends(get_db)):
+def factory_reset_device_api(device_id: str, db: Session = Depends(get_db), admin: User = Depends(require_admin)):
     device = db.query(Node).filter(Node.node_id == device_id).first()
     if not device:
         raise HTTPException(status_code=404)
@@ -366,7 +376,7 @@ def factory_reset_device_api(device_id: str, db: Session = Depends(get_db)):
         )
     db.query(Telemetry).filter(Telemetry.node_id == device_id).delete()
     db.delete(device)
-    db.add(SystemLog(source="MANUAL", log_type="WARN", message=f"Admin triggered Factory Reset for {device_id}"))
+    db.add(SystemLog(source="MANUAL", log_type="WARN", message=f"Admin '{admin.username}' triggered Factory Reset for {device_id}"))
     mqtt_shared.node_last_seen.pop(device_id, None)
     mqtt_shared.node_last_states.pop(device_id, None)
     mqtt_shared.node_last_telemetry.pop(device_id, None)
