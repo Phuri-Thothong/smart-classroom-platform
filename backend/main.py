@@ -3,7 +3,7 @@ import os
 import json
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from apscheduler.schedulers.background import BackgroundScheduler
 import paho.mqtt.client as mqtt
 from fastapi import FastAPI, Depends
@@ -26,6 +26,7 @@ load_dotenv()
 PRE_COOL_MINUTES = int(os.getenv("PRE_COOL_MINUTES", 15))
 NODE_TIMEOUT_MIN_GRACE = int(os.getenv("NODE_TIMEOUT_MIN_GRACE", 45))
 NODE_MONITOR_INTERVAL = int(os.getenv("NODE_MONITOR_INTERVAL", 30))
+BANGKOK_TZ = timezone(timedelta(hours=7))
 
 node_online_states = {}
 
@@ -283,7 +284,11 @@ def on_message(client, userdata, msg):
                         should_save_db = False
 
                 if should_save_db:
-                    node_timestamp = data.get("timestamp") if data.get("timestamp") and data.get("timestamp") != "auto" else datetime.now().isoformat()
+                    node_timestamp = (
+                        data.get("timestamp")
+                        if data.get("timestamp") and data.get("timestamp") != "auto"
+                        else datetime.now(BANGKOK_TZ).isoformat()
+                    )
                     db.add(Telemetry(node_id=device_id, timestamp=node_timestamp, data=sensor_values))
                     db.commit()
 
