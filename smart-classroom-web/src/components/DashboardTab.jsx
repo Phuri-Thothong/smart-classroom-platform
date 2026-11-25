@@ -4,8 +4,9 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import ConfirmModal from './ConfirmModal';
 import BlocklistModal from './BlocklistModal';
 import { useToast } from '../contexts/ToastContext';
+import { useAuth } from '../contexts/AuthContext';
+import { authFetch } from '../utils/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const BKK_TZ = 'Asia/Bangkok';
 
 const METRIC_CONFIG = {
@@ -94,6 +95,7 @@ export default function DashboardTab({
   });
 
   const { showToast } = useToast();
+  const { isAdmin } = useAuth();
 
   // คำนวณรายการอุปกรณ์แบบ Derived State (ไม่ต้องใช้ useEffect + setState)
   const liveDevices = useMemo(() => {
@@ -107,7 +109,7 @@ export default function DashboardTab({
 
   const refreshDevicesNow = useCallback(() => {
     const snapshotBase = devices;
-    fetch(`${API_BASE_URL}/devices`)
+    authFetch('/devices')
       .then(res => res.json())
       .then(data => {
         if (Array.isArray(data)) {
@@ -309,7 +311,7 @@ export default function DashboardTab({
       const isRangeMode = ['1h', '24h', '7d'].includes(timeRange);
       const queryParam = isRangeMode ? `range=${timeRange}` : `limit=${timeRange}`;
 
-      fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry?${queryParam}`)
+      authFetch(`/devices/${activeGraphNode}/telemetry?${queryParam}`)
         .then(res => res.json())
         .then(data => {
           if (!Array.isArray(data)) return;
@@ -355,7 +357,7 @@ export default function DashboardTab({
         .catch(() => {});
     }
 
-    fetch(`${API_BASE_URL}/logs?limit=100`)
+    authFetch('/logs?limit=100')
       .then(res => res.json())
       .then(data => {
         if (!Array.isArray(data)) return;
@@ -391,7 +393,7 @@ export default function DashboardTab({
     try {
       const isRangeMode = ['1h', '24h', '7d'].includes(timeRange);
       const queryParam = isRangeMode ? `range=${timeRange}` : `limit=${timeRange}`;
-      const res = await fetch(`${API_BASE_URL}/devices/${activeGraphNode}/telemetry/export?${queryParam}`);
+      const res = await authFetch(`/devices/${activeGraphNode}/telemetry/export?${queryParam}`);
       if (!res.ok) throw new Error('Export failed');
       const blob = await res.blob();
       const url = window.URL.createObjectURL(blob);
@@ -461,8 +463,9 @@ export default function DashboardTab({
       type: 'danger',
       confirmText: 'Yes, Reject',
       onConfirm: () => {
-        fetch(`${API_BASE_URL}/devices/${deviceId}/reject`, { method: 'POST' })
-          .then(() => {
+        authFetch(`/devices/${deviceId}/reject`, { method: 'POST' })
+          .then(res => {
+            if (!res.ok) throw new Error('Reject failed');
             refreshDevicesNow();
             fetchTelemetryAndLogs();
             showToast(`Device ${deviceId} has been rejected.`, 'success');
@@ -481,8 +484,9 @@ export default function DashboardTab({
       type: 'warning',
       confirmText: 'Yes, Reset',
       onConfirm: () => {
-        fetch(`${API_BASE_URL}/devices/${deviceId}/factory-reset`, { method: 'POST' })
-          .then(() => {
+        authFetch(`/devices/${deviceId}/factory-reset`, { method: 'POST' })
+          .then(res => {
+            if (!res.ok) throw new Error('Reset failed');
             refreshDevicesNow();
             fetchTelemetryAndLogs();
             showToast(`Factory reset command sent to ${deviceId}`, 'success');
@@ -498,7 +502,7 @@ export default function DashboardTab({
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
-      
+
       {/* ---------------- 0. KPI SUMMARY CARDS ---------------- */}
       <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
         {/* Card 1: Online Devices */}
@@ -622,8 +626,9 @@ export default function DashboardTab({
                               </div>
                               <button
                                 onClick={() => handleToggle(device.node_id, isOn)}
-                                disabled={isOffline}
-                                className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline ? 'cursor-not-allowed' : ''}`}
+                                disabled={isOffline || !isAdmin}
+                                title={!isAdmin ? 'Admin access required to control devices' : undefined}
+                                className={`w-11 h-6 rounded-full relative flex items-center transition-colors duration-300 focus:outline-none ${isOn && !isOffline ? 'bg-blue-600' : 'bg-slate-300'} ${isOffline || !isAdmin ? 'cursor-not-allowed opacity-70' : ''}`}
                               >
                                 <div className={`w-4 h-4 bg-white rounded-full shadow-md transform transition-transform duration-300 ${isOn && !isOffline ? 'translate-x-6' : 'translate-x-1'}`}></div>
                               </button>
@@ -669,13 +674,15 @@ export default function DashboardTab({
                   <option key={room} value={room}>{room === 'All' ? 'All Rooms' : `Room ${room}`}</option>
                 ))}
               </select>
-              <div className="flex space-x-1 border-l pl-2 border-slate-200">
-                <button onClick={() => setIsBlocklistOpen(true)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors" title="View Blocklist">
-                  <ShieldAlert size={18} />
-                </button>
-                <button onClick={onOpenAddRoom} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Add Room"><Plus size={18} /></button>
-                <button onClick={onOpenManageRooms} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-md transition-colors" title="Manage Rooms"><Edit3 size={18} /></button>
-              </div>
+              {isAdmin && (
+                <div className="flex space-x-1 border-l pl-2 border-slate-200">
+                  <button onClick={() => setIsBlocklistOpen(true)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors" title="View Blocklist">
+                    <ShieldAlert size={18} />
+                  </button>
+                  <button onClick={onOpenAddRoom} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md transition-colors" title="Add Room"><Plus size={18} /></button>
+                  <button onClick={onOpenManageRooms} className="p-1.5 text-slate-500 hover:bg-slate-100 rounded-md transition-colors" title="Manage Rooms"><Edit3 size={18} /></button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -697,12 +704,12 @@ export default function DashboardTab({
                   <th className="p-3.5 font-medium">Device Info</th>
                   <th className="p-3.5 font-medium">Type</th>
                   <th className="p-3.5 font-medium">Status</th>
-                  <th className="p-3.5 font-medium text-right">Manage</th>
+                  {isAdmin && <th className="p-3.5 font-medium text-right">Manage</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-sm">
                 {filteredDevices.length === 0 ? (
-                  <tr><td colSpan="4" className="text-center py-8 text-slate-400">No devices match your filter</td></tr>
+                  <tr><td colSpan={isAdmin ? 4 : 3} className="text-center py-8 text-slate-400">No devices match your filter</td></tr>
                 ) : (
                   filteredDevices.map(device => {
                     const isPending = device.status === 'pending';
@@ -757,28 +764,28 @@ export default function DashboardTab({
                             </div>
                           )}
                         </td>
-                        <td className="p-3.5 text-right whitespace-nowrap">
-                          {isPending ? (
-                            <div className="flex justify-end items-center gap-1.5">
-                              <button onClick={() => handleReject(device.node_id)} className="flex items-center px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded shadow-sm transition-colors border border-red-100" title="Reject Device">
-                                <X size={14} className="mr-1" /> Reject
-                              </button>
-                              <button onClick={() => onOpenDeviceSetup(device)} className="flex items-center px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
-                                <CheckCircle size={14} className="mr-1.5" /> Approve
-                              </button>
-                            </div>
-                          ) : (
-                            <div className="flex justify-end space-x-1">
-                              <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors" title="Settings"><Settings size={16} /></button>
-
-                              <button onClick={() => handleFactoryReset(device.node_id)} disabled={isOffline} className={`p-1.5 rounded-md transition-colors ${isOffline ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-orange-50 hover:text-orange-600'}`} title="Factory Reset (Wipe Hardware)">
-                                <RotateCcw size={16} />
-                              </button>
-
-                              <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Soft Delete"><Trash2 size={16} /></button>
-                            </div>
-                          )}
-                        </td>
+                        {isAdmin && (
+                          <td className="p-3.5 text-right whitespace-nowrap">
+                            {isPending ? (
+                              <div className="flex justify-end items-center gap-1.5">
+                                <button onClick={() => handleReject(device.node_id)} className="flex items-center px-2.5 py-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-medium rounded shadow-sm transition-colors border border-red-100" title="Reject Device">
+                                  <X size={14} className="mr-1" /> Reject
+                                </button>
+                                <button onClick={() => onOpenDeviceSetup(device)} className="flex items-center px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-medium rounded shadow-sm transition-colors">
+                                  <CheckCircle size={14} className="mr-1.5" /> Approve
+                                </button>
+                              </div>
+                            ) : (
+                              <div className="flex justify-end space-x-1">
+                                <button onClick={() => onOpenDeviceSetup(device)} className="p-1.5 text-slate-400 hover:bg-blue-50 hover:text-blue-600 rounded-md transition-colors" title="Settings"><Settings size={16} /></button>
+                                <button onClick={() => handleFactoryReset(device.node_id)} disabled={isOffline} className={`p-1.5 rounded-md transition-colors ${isOffline ? 'text-slate-300 cursor-not-allowed' : 'text-slate-400 hover:bg-orange-50 hover:text-orange-600'}`} title="Factory Reset (Wipe Hardware)">
+                                  <RotateCcw size={16} />
+                                </button>
+                                <button onClick={() => onDeleteDevice(device.node_id)} className="p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600 rounded-md transition-colors" title="Soft Delete"><Trash2 size={16} /></button>
+                              </div>
+                            )}
+                          </td>
+                        )}
                       </tr>
                     );
                   })
@@ -1028,14 +1035,16 @@ export default function DashboardTab({
         onConfirm={modalState.onConfirm}
         onCancel={() => setModalState(prev => ({ ...prev, isOpen: false }))}
       />
-      <BlocklistModal
-        isOpen={isBlocklistOpen}
-        onClose={() => {
-          setIsBlocklistOpen(false);
-          refreshDevicesNow();
-          fetchTelemetryAndLogs();
-        }}
-      />
+      {isAdmin && (
+        <BlocklistModal
+          isOpen={isBlocklistOpen}
+          onClose={() => {
+            setIsBlocklistOpen(false);
+            refreshDevicesNow();
+            fetchTelemetryAndLogs();
+          }}
+        />
+      )}
     </div>
   );
 }

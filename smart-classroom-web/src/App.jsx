@@ -1,6 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
+import { Eye } from 'lucide-react';
 import { useToast } from './contexts/ToastContext';
+import { useAuth } from './contexts/AuthContext';
+import { authFetch } from './utils/api';
 import Sidebar from './components/Sidebar';
+import LoginPage from './components/LoginPage';
+import UsersTab from './components/UsersTab';
 import ConfirmModal from './components/ConfirmModal';
 import AddRoomModal from './components/AddRoomModal';
 import DeviceSetupModal from './components/DeviceSetupModal';
@@ -10,59 +15,59 @@ import AddClassModal from './components/AddClassModal';
 import RuleManager from './components/RuleManager';
 import DashboardTab from './components/DashboardTab';
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
-
 export default function App() {
   const { showToast } = useToast();
+  const { user, isAdmin, isAuthLoading } = useAuth();
 
   const [activeTab, setActiveTab] = useState(() => localStorage.getItem('smartclass_tab') || 'dashboard');
   const [devices, setDevices] = useState([]);
   const [roomsList, setRoomsList] = useState([]);
   const [isBackendOnline, setIsBackendOnline] = useState(true);
-  
-  // States สำหรับ Dashboard
+
   const [deviceStatus, setDeviceStatus] = useState({});
   const [gatewayStatus, setGatewayStatus] = useState({});
   const [globalConfirm, setGlobalConfirm] = useState({
     isOpen: false, title: '', message: '', onConfirm: null
   });
-  
-  // States สำหรับ Modals
+
   const [isAddRoomOpen, setIsAddRoomOpen] = useState(false);
   const [isManageRoomsOpen, setIsManageRoomsOpen] = useState(false);
   const [isDeviceSetupOpen, setIsDeviceSetupOpen] = useState(false);
   const [setupDevice, setSetupDevice] = useState(null);
   const [isAddClassOpen, setIsAddClassOpen] = useState(false);
-  
-  // State กระตุ้นการดึงข้อมูล Automation
   const [scheduleRefreshCount, setScheduleRefreshCount] = useState(0);
+
+  const effectiveTab = activeTab === 'users' && !isAdmin ? 'dashboard' : activeTab;
 
   // ==========================================
   // Core Data Fetching
   // ==========================================
   const fetchRooms = useCallback(() => {
-    fetch(`${API_BASE_URL}/rooms`)
-      .then(res => res.json())
-      .then(data => setRoomsList(data))
+    authFetch('/rooms')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (Array.isArray(data)) setRoomsList(data); })
       .catch(err => console.error("Rooms Fetch Error:", err.message));
   }, []);
 
   const fetchGateways = useCallback(() => {
-    fetch(`${API_BASE_URL}/gateways/status`)
-      .then(res => res.json())
-      .then(data => setGatewayStatus(data))
+    authFetch('/gateways/status')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => { if (data && typeof data === 'object') setGatewayStatus(data); })
       .catch(err => console.error("Gateway Fetch Error:", err.message));
   }, []);
 
   const fetchDevices = useCallback(() => {
-    fetch(`${API_BASE_URL}/devices`)
+    authFetch('/devices')
       .then(res => {
+        if (res.status === 401) return null;
         if (!res.ok) throw new Error("Network error");
         return res.json();
       })
       .then(data => {
-        setDevices(data);
-        setIsBackendOnline(true);
+        if (Array.isArray(data)) {
+          setDevices(data);
+          setIsBackendOnline(true);
+        }
       })
       .catch(err => {
         console.error("Fetch Error:", err.message);
@@ -71,6 +76,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    if (!user) return;
     fetchRooms();
     fetchDevices();
     fetchGateways();
@@ -79,18 +85,18 @@ export default function App() {
       fetchGateways();
     }, 5000);
     return () => clearInterval(interval);
-  }, [fetchDevices, fetchGateways, fetchRooms]);
+  }, [user, fetchDevices, fetchGateways, fetchRooms]);
 
   useEffect(() => {
-    localStorage.setItem('smartclass_tab', activeTab);
-  }, [activeTab]);
+    localStorage.setItem('smartclass_tab', effectiveTab);
+  }, [effectiveTab]);
 
   // ==========================================
   // Action Handlers
   // ==========================================
   const handleSaveRoom = async (newRoom) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/rooms`, {
+      const res = await authFetch('/rooms', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: newRoom.id, room_name: newRoom.name })
@@ -99,7 +105,7 @@ export default function App() {
       setIsAddRoomOpen(false);
       fetchRooms();
       showToast("Room created successfully", "success");
-    } catch (error) { 
+    } catch (error) {
       showToast(`Error saving room: ${error.message}`, "error");
     }
   };
@@ -111,15 +117,16 @@ export default function App() {
       message: `Are you sure you want to delete room ${roomId}?\nAll assigned devices will become unassigned.`,
       onConfirm: async () => {
         try {
-          const res = await fetch(`${API_BASE_URL}/rooms/${roomId}`, { method: 'DELETE' });
+          const res = await authFetch(`/rooms/${roomId}`, { method: 'DELETE' });
           if (!res.ok) throw new Error("Failed to delete room");
           fetchRooms();
           fetchDevices();
-          showToast(`Room ${roomId} deleted`, "success"); 
-        } catch (error) { 
-          showToast(`Error deleting room: ${error.message}`, "error"); 
+          showToast(`Room ${roomId} deleted`, "success");
+        } catch (error) {
+          showToast(`Error deleting room: ${error.message}`, "error");
+        } finally {
+          setGlobalConfirm({ isOpen: false });
         }
-        finally { setGlobalConfirm({ isOpen: false }); }
       }
     });
   };
@@ -127,7 +134,7 @@ export default function App() {
   const handleSaveDeviceConfig = async (configData, isNewApproval) => {
     const endpoint = isNewApproval ? 'approve' : 'config';
     try {
-      const res = await fetch(`${API_BASE_URL}/devices/${configData.device_id}/${endpoint}`, {
+      const res = await authFetch(`/devices/${configData.device_id}/${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(configData)
@@ -136,8 +143,8 @@ export default function App() {
       setIsDeviceSetupOpen(false);
       fetchDevices();
       showToast(isNewApproval ? "Device approved" : "Configuration saved", "success");
-    } catch (error) { 
-      showToast(`Error saving configuration: ${error.message}`, "error"); 
+    } catch (error) {
+      showToast(`Error saving configuration: ${error.message}`, "error");
     }
   };
 
@@ -146,7 +153,7 @@ export default function App() {
     const action = newStatus ? "ON" : "OFF";
     setDeviceStatus(prev => ({ ...prev, [id]: newStatus }));
     try {
-      const res = await fetch(`${API_BASE_URL}/devices/${id}/control`, {
+      const res = await authFetch(`/devices/${id}/control`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action })
@@ -166,14 +173,15 @@ export default function App() {
       message: `Are you sure you want to permanently delete node:\n${deviceId}?`,
       onConfirm: async () => {
         try {
-          const res = await fetch(`${API_BASE_URL}/devices/${deviceId}`, { method: 'DELETE' });
+          const res = await authFetch(`/devices/${deviceId}`, { method: 'DELETE' });
           if (!res.ok) throw new Error("Failed to delete device");
           fetchDevices();
           showToast("Device deleted successfully", "success");
-        } catch (error) { 
-          showToast(`Failed to delete device: ${error.message}`, "error"); 
+        } catch (error) {
+          showToast(`Failed to delete device: ${error.message}`, "error");
+        } finally {
+          setGlobalConfirm({ isOpen: false });
         }
-        finally { setGlobalConfirm({ isOpen: false }); }
       }
     });
   };
@@ -185,67 +193,94 @@ export default function App() {
   };
 
   // ==========================================
+  // Auth Gate
+  // ==========================================
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-slate-900 flex items-center justify-center text-slate-300 text-sm">
+        Verifying session...
+      </div>
+    );
+  }
+
+  if (!user) {
+    return <LoginPage />;
+  }
+
+  // ==========================================
   // Layout & Rendering
   // ==========================================
   return (
     <div className="flex h-screen bg-slate-50 text-slate-800 font-sans relative">
-      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
+      <Sidebar activeTab={effectiveTab} setActiveTab={setActiveTab} />
 
       <main className="flex-1 flex flex-col overflow-hidden">
         <header className="h-16 bg-white shadow-sm flex items-center justify-between px-8 z-10">
-          <h2 className="text-xl font-semibold capitalize">{activeTab}</h2>
-          <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium border ${isBackendOnline ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
-            <span className={`w-2 h-2 rounded-full mr-2 ${isBackendOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
-            {isBackendOnline ? 'Platform Online' : 'Backend Disconnected'}
+          <h2 className="text-xl font-semibold capitalize">{effectiveTab}</h2>
+          <div className="flex items-center gap-3">
+            {!isAdmin && (
+              <div className="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
+                <Eye size={14} />
+                Read-Only Mode
+              </div>
+            )}
+            <div className={`flex items-center px-3 py-1 rounded-full text-sm font-medium border ${isBackendOnline ? 'bg-green-50 text-green-700 border-green-200' : 'bg-red-50 text-red-700 border-red-200'}`}>
+              <span className={`w-2 h-2 rounded-full mr-2 ${isBackendOnline ? 'bg-green-500 animate-pulse' : 'bg-red-500'}`}></span>
+              {isBackendOnline ? 'Platform Online' : 'Backend Disconnected'}
+            </div>
           </div>
         </header>
 
         <div className="flex-1 overflow-auto p-8">
-          {activeTab === 'dashboard' ? (
-            <DashboardTab 
+          {effectiveTab === 'dashboard' ? (
+            <DashboardTab
               devices={devices} roomsList={roomsList} gatewayStatus={gatewayStatus} deviceStatus={deviceStatus}
               onToggleDevice={toggleDevice} onDeleteDevice={deleteDevice}
               onOpenAddRoom={() => setIsAddRoomOpen(true)}
               onOpenManageRooms={() => setIsManageRoomsOpen(true)}
               onOpenDeviceSetup={(device) => { setSetupDevice(device); setIsDeviceSetupOpen(true); }}
             />
-          ) : activeTab === 'automation' ? (
+          ) : effectiveTab === 'automation' ? (
             <div className="max-w-7xl mx-auto space-y-6">
               <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-6">
                 <h3 className="text-xl font-bold text-slate-800 mb-2">Automation & Schedules</h3>
                 <p className="text-slate-500 mb-6">Manage sensor conditions and timetables for automated device control.</p>
-                <ScheduleManager 
-                  roomsList={roomsList} 
-                  onAddClick={() => setIsAddClassOpen(true)} 
-                  refreshTrigger={scheduleRefreshCount} 
+                <ScheduleManager
+                  roomsList={roomsList}
+                  onAddClick={() => setIsAddClassOpen(true)}
+                  refreshTrigger={scheduleRefreshCount}
                 />
                 <RuleManager devices={devices} />
               </div>
             </div>
           ) : (
-            <div className="flex items-center justify-center h-full text-slate-400">Module under construction</div>
+            <UsersTab />
           )}
         </div>
       </main>
 
-      <AddRoomModal isOpen={isAddRoomOpen} onClose={() => setIsAddRoomOpen(false)} onSave={handleSaveRoom} />
-      <ManageRoomsModal isOpen={isManageRoomsOpen} onClose={() => setIsManageRoomsOpen(false)} roomsList={roomsList} onDeleteRoom={handleDeleteRoom} />
-      
-      <DeviceSetupModal 
-        key={isDeviceSetupOpen ? `setup-${setupDevice?.node_id}` : 'setup-closed'}
-        isOpen={isDeviceSetupOpen} 
-        onClose={() => setIsDeviceSetupOpen(false)} 
-        onSave={handleSaveDeviceConfig} 
-        device={setupDevice} 
-        roomsList={roomsList} 
-      />
-      <AddClassModal 
-        isOpen={isAddClassOpen} 
-        onClose={() => setIsAddClassOpen(false)} 
-        onSave={handleSaveClass} 
-        roomsList={roomsList} 
-      />
-      <ConfirmModal 
+      {isAdmin && (
+        <>
+          <AddRoomModal isOpen={isAddRoomOpen} onClose={() => setIsAddRoomOpen(false)} onSave={handleSaveRoom} />
+          <ManageRoomsModal isOpen={isManageRoomsOpen} onClose={() => setIsManageRoomsOpen(false)} roomsList={roomsList} onDeleteRoom={handleDeleteRoom} />
+          <DeviceSetupModal
+            key={isDeviceSetupOpen ? `setup-${setupDevice?.node_id}` : 'setup-closed'}
+            isOpen={isDeviceSetupOpen}
+            onClose={() => setIsDeviceSetupOpen(false)}
+            onSave={handleSaveDeviceConfig}
+            device={setupDevice}
+            roomsList={roomsList}
+          />
+          <AddClassModal
+            isOpen={isAddClassOpen}
+            onClose={() => setIsAddClassOpen(false)}
+            onSave={handleSaveClass}
+            roomsList={roomsList}
+          />
+        </>
+      )}
+
+      <ConfirmModal
         isOpen={globalConfirm.isOpen}
         title={globalConfirm.title}
         message={globalConfirm.message}

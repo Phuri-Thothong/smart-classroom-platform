@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
 import { X, ShieldAlert, RefreshCcw } from 'lucide-react';
 import { useToast } from '../contexts/ToastContext';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+import { authFetch } from '../utils/api';
 
 export default function BlocklistModal({ isOpen, onClose }) {
   const [rejectedDevices, setRejectedDevices] = useState([]);
@@ -20,12 +19,11 @@ export default function BlocklistModal({ isOpen, onClose }) {
 
       setIsLoading(true);
       try {
-        const res = await fetch(`${API_BASE_URL}/devices/rejected`);
+        const res = await authFetch('/devices/rejected');
         if (!res.ok) throw new Error("Network response was not ok");
-        
+
         const data = await res.json();
         if (isMounted) {
-          // ตรวจสอบความปลอดภัย ป้องกันข้อมูลไม่ใช่ Array แล้วพาแอปพัง
           setRejectedDevices(Array.isArray(data) ? data : []);
         }
       } catch (error) {
@@ -45,18 +43,18 @@ export default function BlocklistModal({ isOpen, onClose }) {
 
   const handleRestore = async (deviceId) => {
     try {
-      const res = await fetch(`${API_BASE_URL}/devices/${deviceId}/restore`, { method: 'POST' });
+      const res = await authFetch(`/devices/${deviceId}/restore`, { method: 'POST' });
       if (res.ok) {
         showToast(`Device ${deviceId} has been restored and hardware was reset.`, 'success');
 
-        const refreshRes = await fetch(`${API_BASE_URL}/devices/rejected`);
+        const refreshRes = await authFetch('/devices/rejected');
         const data = await refreshRes.json();
         setRejectedDevices(Array.isArray(data) ? data : []);
       } else {
         showToast('Failed to restore device', 'error');
       }
-    } catch (error) {
-      showToast('Network error while restoring device', error);
+    } catch {
+      showToast('Network error while restoring device', 'error');
     }
   };
 
@@ -67,7 +65,7 @@ export default function BlocklistModal({ isOpen, onClose }) {
   return (
     <div className="fixed inset-0 bg-slate-900/40 flex items-center justify-center z-50 p-4 backdrop-blur-sm">
       <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl overflow-hidden animate-in fade-in zoom-in duration-200 flex flex-col max-h-[80vh]">
-        
+
         <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 shrink-0">
           <div className="flex items-center gap-2 text-slate-800">
             <ShieldAlert size={20} className="text-red-500" />
@@ -103,7 +101,7 @@ export default function BlocklistModal({ isOpen, onClose }) {
                       </span>
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={() => handleRestore(device.node_id)}
                     className="flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 text-slate-600 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 text-xs font-medium rounded-md shadow-sm transition-all"
                   >

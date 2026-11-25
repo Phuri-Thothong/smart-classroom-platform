@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import { X, AlertCircle, Plus, Trash2 } from 'lucide-react';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+import { authFetch } from '../utils/api';
 
 export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
   const [roomId, setRoomId] = useState('');
@@ -10,7 +9,7 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
   const [schedules, setSchedules] = useState([
     { id: 'row-1', day: '2', start_time: '08:00', end_time: '09:50' }
   ]);
-  const [errorMessages, setErrorMessages] = useState([]); 
+  const [errorMessages, setErrorMessages] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
 
   const activeRoomId = roomId || (roomsList.length > 0 ? roomsList[0].room_id : '');
@@ -48,8 +47,8 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setErrorMessages([]);
-    let collectedErrors = [];
-    
+    const collectedErrors = [];
+
     if (schedules.length === 0) {
       setErrorMessages(['Please add at least one schedule.']);
       return;
@@ -67,7 +66,7 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
     for (const s of schedules) {
       const submitData = {
         room_id: activeRoomId,
-        day_of_week: parseInt(s.day),
+        day_of_week: parseInt(s.day, 10),
         start_time: `${s.start_time}:00`,
         end_time: `${s.end_time}:00`,
         subject_code: subjectCode,
@@ -75,21 +74,21 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
       };
 
       try {
-        const res = await fetch(`${API_BASE_URL}/schedules`, {
+        const res = await authFetch('/schedules', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(submitData)
         });
-        
+
         if (!res.ok) {
-          const errData = await res.json();
-          const dayName = daysOptions.find(d => d.id === s.day).label;
+          const errData = await res.json().catch(() => ({}));
+          const dayName = daysOptions.find(d => d.id === s.day)?.label || s.day;
           if (Array.isArray(errData.detail)) {
             errData.detail.forEach(errDetail => {
-               collectedErrors.push(`${dayName}: Time conflict! ${errDetail}`);
+              collectedErrors.push(`${dayName}: Time conflict! ${errDetail}`);
             });
           } else {
-             collectedErrors.push(`${dayName}: ${errData.detail || 'Failed to save'}`);
+            collectedErrors.push(`${dayName}: ${errData.detail || 'Failed to save'}`);
           }
           hasError = true;
         }
@@ -100,12 +99,12 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
     }
 
     setIsSaving(false);
-    
+
     if (hasError) {
-       setErrorMessages(collectedErrors);
+      setErrorMessages(collectedErrors);
     } else {
       handleClose();
-      onSave(); 
+      onSave();
     }
   };
 
@@ -123,19 +122,19 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
           <form id="addClassForm" onSubmit={handleSubmit} className="space-y-6">
             {errorMessages.length > 0 && (
               <div className="bg-red-50 text-red-600 p-3 rounded-md text-sm border border-red-100">
-                 {errorMessages.map((msg, idx) => (
-                    <div key={idx} className="flex items-start gap-2 mb-1 last:mb-0">
-                      <AlertCircle size={16} className="mt-0.5 shrink-0" />
-                      <span>{msg}</span>
-                    </div>
-                 ))}
+                {errorMessages.map((msg, idx) => (
+                  <div key={idx} className="flex items-start gap-2 mb-1 last:mb-0">
+                    <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                    <span>{msg}</span>
+                  </div>
+                ))}
               </div>
             )}
 
             <div className="grid grid-cols-3 gap-4 p-4 bg-slate-50 border border-slate-200 rounded-lg">
               <div className="col-span-1">
                 <label className="block text-xs font-medium text-slate-500 mb-1">Room</label>
-                <select 
+                <select
                   className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 bg-white border outline-none focus:ring-2 focus:ring-blue-100"
                   value={activeRoomId} onChange={e => setRoomId(e.target.value)} required
                 >
@@ -159,20 +158,20 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
             <div>
               <div className="flex justify-between items-center mb-3">
                 <label className="block text-sm font-medium text-slate-700">Class Schedules</label>
-                <button 
+                <button
                   type="button" onClick={addScheduleRow}
                   className="flex items-center text-xs font-medium text-blue-600 hover:text-blue-700 hover:bg-blue-50 px-2 py-1 rounded transition-colors"
                 >
                   <Plus size={14} className="mr-1" /> Add Time
                 </button>
               </div>
-              
+
               <div className="space-y-3">
                 {schedules.map((schedule) => (
                   <div key={schedule.id} className="flex items-center gap-3 p-3 border border-slate-200 rounded-lg bg-white relative group">
                     <div className="w-1/3">
                       <label className="block text-[10px] font-medium text-slate-400 mb-1 uppercase tracking-wider">Day</label>
-                      <select 
+                      <select
                         className="w-full border-slate-200 rounded-md text-sm p-1.5 outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
                         value={schedule.day} onChange={e => updateSchedule(schedule.id, 'day', e.target.value)} required
                       >
@@ -191,9 +190,9 @@ export default function AddClassModal({ isOpen, onClose, onSave, roomsList }) {
                         className="w-full border-slate-200 rounded-md text-sm p-1.5 outline-none focus:ring-2 focus:ring-blue-100 bg-slate-50"
                         value={schedule.end_time} onChange={e => updateSchedule(schedule.id, 'end_time', e.target.value)} />
                     </div>
-                    
+
                     {schedules.length > 1 && (
-                      <button 
+                      <button
                         type="button" onClick={() => removeScheduleRow(schedule.id)}
                         className="absolute -right-2 -top-2 bg-red-100 text-red-600 p-1.5 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-200 transition-all shadow-sm"
                         title="Remove time"

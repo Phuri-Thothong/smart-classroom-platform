@@ -26,6 +26,16 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db), _: User = Depends(r
     db.commit()
     return {"status": "success"}
 
+@router.put("/rules/{rule_id}/toggle")
+def toggle_rule(rule_id: int, db: Session = Depends(get_db), _: User = Depends(require_admin)):
+    rule = db.query(AutomationRule).filter(AutomationRule.rule_id == rule_id).first()
+    if not rule:
+        raise HTTPException(status_code=404, detail="Rule not found")
+    rule.is_active = not rule.is_active
+    db.commit()
+    db.refresh(rule)
+    return rule
+
 @router.get("/schedules")
 def get_schedules(db: Session = Depends(get_db), _: User = Depends(get_current_user)):
     return db.query(ClassSchedule).all()

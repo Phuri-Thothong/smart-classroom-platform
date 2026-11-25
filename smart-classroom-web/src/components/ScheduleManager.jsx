@@ -2,11 +2,12 @@ import { useState, useEffect, useMemo } from 'react';
 import { Calendar, Trash2, Edit3, X, AlertCircle } from 'lucide-react';
 import ConfirmModal from './ConfirmModal';
 import { useToast } from '../contexts/ToastContext';
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+import { useAuth } from '../contexts/AuthContext';
+import { authFetch } from '../utils/api';
 
 export default function ScheduleManager({ roomsList = [], onAddClick, refreshTrigger }) {
   const { showToast } = useToast();
+  const { isAdmin } = useAuth();
   const [schedules, setSchedules] = useState([]);
   const [selectedRoom, setSelectedRoom] = useState('');
   const [deleteConfirmData, setDeleteConfirmData] = useState(null);
@@ -19,16 +20,23 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
 
   const fetchSchedules = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/schedules`);
-      if (res.ok) setSchedules(await res.json());
-    } catch (error) { console.error("Error:", error.message); }
+      const res = await authFetch('/schedules');
+      if (res.ok) {
+        const data = await res.json();
+        setSchedules(Array.isArray(data) ? data : []);
+      }
+    } catch (error) {
+      console.error("Error:", error.message);
+    }
   };
 
   useEffect(() => {
     let isMounted = true;
-    fetch(`${API_BASE_URL}/schedules`)
-      .then(res => res.json())
-      .then(data => { if (isMounted) setSchedules(data); })
+    authFetch('/schedules')
+      .then(res => (res.ok ? res.json() : null))
+      .then(data => {
+        if (isMounted && Array.isArray(data)) setSchedules(data);
+      })
       .catch(err => console.error(err.message));
     return () => { isMounted = false; };
   }, [refreshTrigger]);
@@ -40,20 +48,21 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
   }, []);
 
   const executeDelete = async () => {
-    if (!deleteConfirmData) return;
+    if (!deleteConfirmData || !isAdmin) return;
     try {
-      const res = await fetch(`${API_BASE_URL}/schedules/${deleteConfirmData.id}`, { method: 'DELETE' });
+      const res = await authFetch(`/schedules/${deleteConfirmData.id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error("Failed to delete from database");
       setDeleteConfirmData(null);
       showToast("Class schedule removed", "success");
-      fetchSchedules(); 
-    } catch (error) { 
-      showToast(`Error deleting class: ${error.message}`, "error"); 
+      fetchSchedules();
+    } catch (error) {
+      showToast(`Error deleting class: ${error.message}`, "error");
     }
   };
 
   const handleUpdateSchedule = async (e) => {
     e.preventDefault();
+    if (!isAdmin) return;
     setEditError('');
     if (editScheduleData.start_time >= editScheduleData.end_time) {
       setEditError('End time must be after start time.');
@@ -62,38 +71,39 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
     setIsSaving(true);
     const submitData = {
       room_id: editScheduleData.room_id,
-      day_of_week: parseInt(editScheduleData.day_of_week),
+      day_of_week: parseInt(editScheduleData.day_of_week, 10),
       start_time: `${editScheduleData.start_time}:00`,
       end_time: `${editScheduleData.end_time}:00`,
       subject_code: editScheduleData.subject_code,
       subject_name: editScheduleData.subject_name
     };
     try {
-      const res = await fetch(`${API_BASE_URL}/schedules/${editScheduleData.id}`, {
+      const res = await authFetch(`/schedules/${editScheduleData.id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(submitData)
       });
       if (!res.ok) {
-        const errData = await res.json();
+        const errData = await res.json().catch(() => ({}));
         const errMsg = Array.isArray(errData.detail) ? errData.detail[0] : errData.detail;
         throw new Error(errMsg || 'Failed to update schedule');
       }
       setEditScheduleData(null);
       fetchSchedules();
       showToast("Schedule updated successfully", "success");
-    } catch (error) { 
-      setEditError(error.message); 
+    } catch (error) {
+      setEditError(error.message);
       showToast(error.message, "error");
-    } 
-    finally { setIsSaving(false); }
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const days = [
     { id: 2, name: 'Mon' }, { id: 3, name: 'Tue' }, { id: 4, name: 'Wed' },
     { id: 5, name: 'Thu' }, { id: 6, name: 'Fri' }, { id: 7, name: 'Sat' }, { id: 1, name: 'Sun' }
   ];
-  
+
   const hours = [8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
   const calculatePosition = (start, end) => {
@@ -109,7 +119,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
   };
 
   const palette = [
-    "bg-slate-500", "bg-indigo-400", "bg-teal-500", "bg-rose-400", 
+    "bg-slate-500", "bg-indigo-400", "bg-teal-500", "bg-rose-400",
     "bg-sky-500", "bg-violet-400", "bg-emerald-400", "bg-fuchsia-400",
     "bg-orange-400", "bg-cyan-500", "bg-pink-400", "bg-blue-400"
   ];
@@ -141,15 +151,17 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200 mt-6 relative">
 
-      <ConfirmModal 
-        isOpen={!!deleteConfirmData}
-        title="Delete Class Schedule?"
-        message={getDeleteMessage()}
-        onConfirm={executeDelete}
-        onCancel={() => setDeleteConfirmData(null)}
-      />
+      {isAdmin && (
+        <ConfirmModal
+          isOpen={!!deleteConfirmData}
+          title="Delete Class Schedule?"
+          message={getDeleteMessage()}
+          onConfirm={executeDelete}
+          onCancel={() => setDeleteConfirmData(null)}
+        />
+      )}
 
-      {editScheduleData && (
+      {isAdmin && editScheduleData && (
         <div className="fixed inset-0 bg-slate-900/50 flex items-center justify-center z-50">
           <div className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden">
             <div className="flex justify-between items-center px-6 py-4 border-b border-slate-100 bg-slate-50">
@@ -170,18 +182,18 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Room</label>
-                  <select 
+                  <select
                     className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 bg-slate-50 border outline-none focus:ring-2 focus:ring-blue-100"
-                    value={editScheduleData.room_id} onChange={e => setEditScheduleData({...editScheduleData, room_id: e.target.value})} required
+                    value={editScheduleData.room_id} onChange={e => setEditScheduleData({ ...editScheduleData, room_id: e.target.value })} required
                   >
                     {roomsList.map(r => <option key={r.room_id} value={r.room_id}>{r.room_id}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">Day</label>
-                  <select 
+                  <select
                     className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 bg-slate-50 border outline-none focus:ring-2 focus:ring-blue-100"
-                    value={editScheduleData.day_of_week} onChange={e => setEditScheduleData({...editScheduleData, day_of_week: e.target.value})} required
+                    value={editScheduleData.day_of_week} onChange={e => setEditScheduleData({ ...editScheduleData, day_of_week: e.target.value })} required
                   >
                     {days.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
@@ -193,13 +205,13 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                   <label className="block text-xs font-medium text-slate-500 mb-1">Start Time</label>
                   <input type="time" required
                     className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100"
-                    value={editScheduleData.start_time} onChange={e => setEditScheduleData({...editScheduleData, start_time: e.target.value})} />
+                    value={editScheduleData.start_time} onChange={e => setEditScheduleData({ ...editScheduleData, start_time: e.target.value })} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-slate-500 mb-1">End Time</label>
                   <input type="time" required
                     className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100"
-                    value={editScheduleData.end_time} onChange={e => setEditScheduleData({...editScheduleData, end_time: e.target.value})} />
+                    value={editScheduleData.end_time} onChange={e => setEditScheduleData({ ...editScheduleData, end_time: e.target.value })} />
                 </div>
               </div>
 
@@ -208,13 +220,13 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                   <label className="block text-xs font-medium text-slate-500 mb-1">Subject Code</label>
                   <input type="text" required
                     className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100 uppercase"
-                    value={editScheduleData.subject_code} onChange={e => setEditScheduleData({...editScheduleData, subject_code: e.target.value.toUpperCase()})} />
+                    value={editScheduleData.subject_code} onChange={e => setEditScheduleData({ ...editScheduleData, subject_code: e.target.value.toUpperCase() })} />
                 </div>
                 <div className="col-span-2">
                   <label className="block text-xs font-medium text-slate-500 mb-1">Subject Name</label>
                   <input type="text" required
                     className="w-full border-slate-300 rounded-md shadow-sm text-sm p-2 border outline-none focus:ring-2 focus:ring-blue-100 uppercase"
-                    value={editScheduleData.subject_name} onChange={e => setEditScheduleData({...editScheduleData, subject_name: e.target.value.toUpperCase()})} />
+                    value={editScheduleData.subject_name} onChange={e => setEditScheduleData({ ...editScheduleData, subject_name: e.target.value.toUpperCase() })} />
                 </div>
               </div>
 
@@ -248,20 +260,22 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
             ))}
           </select>
         </div>
-        <button 
-          onClick={onAddClick}
-          className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm transition-colors"
-        >
-          + Add Class
-        </button>
+        {isAdmin && (
+          <button
+            onClick={onAddClick}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-md text-sm font-medium shadow-sm transition-colors"
+          >
+            + Add Class
+          </button>
+        )}
       </div>
 
       <div className="border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
         <div className="flex pl-24 border-b border-slate-200 bg-white">
           <div className="relative w-full h-10">
             {hours.map((hour, i) => (
-              <div 
-                key={hour} 
+              <div
+                key={hour}
                 className={`absolute text-xs text-slate-500 font-medium bottom-2 ${
                   i === 0 ? 'translate-x-0' : i === hours.length - 1 ? '-translate-x-full' : '-translate-x-1/2'
                 }`}
@@ -275,13 +289,13 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
 
         {days.map((day) => {
           const dayClasses = roomSchedules.filter(s => s.day_of_week === day.id);
-          
+
           return (
             <div key={day.id} className="flex border-b border-slate-200 last:border-b-0 min-h-15 bg-white group/row hover:bg-slate-50 transition-colors">
               <div className="w-24 shrink-0 flex items-center justify-center border-r border-slate-200 font-medium text-slate-700 text-sm">
                 {day.name}
               </div>
-              
+
               <div className="relative w-full py-2">
                 {hours.map((_, i) => (
                   <div key={i} className="absolute top-0 bottom-0 border-l border-dashed border-slate-200" style={{ left: `${(i / 10) * 100}%` }} />
@@ -290,14 +304,15 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                 {dayClasses.map((cls) => {
                   const style = calculatePosition(cls.start_time, cls.end_time);
                   const colorClass = getSubjectColor(cls.subject_code);
-                  
+
                   return (
-                    <div 
-                      key={cls.id} 
-                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs ${colorClass} hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 transition-all cursor-pointer flex flex-col justify-center`}
+                    <div
+                      key={cls.id}
+                      className={`absolute top-1 bottom-1 rounded-md shadow-sm text-white px-2 py-1 text-xs ${colorClass} ${isAdmin ? 'hover:ring-2 hover:ring-offset-1 hover:ring-slate-300 cursor-pointer' : 'cursor-default'} transition-all flex flex-col justify-center`}
                       style={{ left: style.left, width: style.width }}
-                      title={`${cls.start_time.substring(0,5)} - ${cls.end_time.substring(0,5)}\n${cls.subject_code} ${cls.subject_name}`}
+                      title={`${cls.start_time.substring(0, 5)} - ${cls.end_time.substring(0, 5)}\n${cls.subject_code} ${cls.subject_name}`}
                       onClick={(e) => {
+                        if (!isAdmin) return;
                         e.stopPropagation();
                         setActiveClassMenu(activeClassMenu === cls.id ? null : cls.id);
                       }}
@@ -305,8 +320,8 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                       <div className="font-semibold truncate">{cls.subject_code}</div>
                       <div className="truncate opacity-90">{cls.subject_name}</div>
 
-                      {activeClassMenu === cls.id && (
-                        <div 
+                      {isAdmin && activeClassMenu === cls.id && (
+                        <div
                           className="absolute z-50 bottom-full mb-2 left-1/2 transform -translate-x-1/2 bg-slate-800 text-white shadow-xl rounded-md p-1 flex items-center gap-1 cursor-default min-w-max"
                           onClick={(e) => e.stopPropagation()}
                         >
@@ -335,7 +350,7 @@ export default function ScheduleManager({ roomsList = [], onAddClick, refreshTri
                           >
                             <Trash2 size={14} /> <span>Delete</span>
                           </button>
-                          
+
                           <div className="absolute -bottom-1 left-1/2 transform -translate-x-1/2 w-2.5 h-2.5 bg-slate-800 rotate-45"></div>
                         </div>
                       )}
