@@ -1,6 +1,6 @@
 MQTT_BROKER = "broker.hivemq.com"
 MQTT_PORT = 1883
-PREFIX = "smart-classroom/psu_6610110598" 
+PREFIX = "smart-classroom/psu_6610110598"
 MQTT_METADATA_TOPIC = f"{PREFIX}/nodes/+/metadata"
 MQTT_CONFIG_TOPIC = f"{PREFIX}/nodes/{{}}/config"
 MQTT_TELEMETRY_TOPIC = f"{PREFIX}/nodes/+/telemetry"
@@ -11,6 +11,8 @@ gateway_statuses = {}
 node_last_seen = {}
 # เก็บสถานะล่าสุดของโหนดควบคุม สำหรับทำ Change-of-Value
 node_last_states = {}
+# เก็บค่าเซนเซอร์ล่าสุดของแต่ละโหนดใน RAM สำหรับแสดงบน KPI Summary Cards
+node_last_telemetry = {}
 mqtt_client = None
 
 def get_default_telemetry_interval(device_type: str) -> int:

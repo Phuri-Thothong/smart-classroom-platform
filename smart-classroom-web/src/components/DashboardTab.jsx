@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, Terminal, ChevronDown, X, RotateCcw, ShieldAlert, Download, Clock } from 'lucide-react';
+import { ServerCrash, Lightbulb, Wind, CheckCircle, Activity, Filter, Plus, UserCheck, Trash2, AlertTriangle, Settings, Edit3, Thermometer, Power, Terminal, ChevronDown, X, RotateCcw, ShieldAlert, Download, Clock, Cpu, Users, Sun } from 'lucide-react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ConfirmModal from './ConfirmModal';
 import BlocklistModal from './BlocklistModal';
@@ -234,6 +234,76 @@ export default function DashboardTab({
   const offlineGateways = useMemo(() => Object.entries(gatewayStatus).filter(([, status]) => status === 'offline').map(([id]) => id), [gatewayStatus]);
   const offlineGatewaysCount = offlineGateways.length;
 
+  const kpiStats = useMemo(() => {
+    const scoped = liveDevices.filter(d => selectedRoom === 'All' || d.room_id === selectedRoom);
+    const approved = scoped.filter(d => d.status !== 'pending');
+    const pendingCount = scoped.length - approved.length;
+    const onlineCount = approved.filter(d => d.status === 'active').length;
+
+    const totalRoomsCount = selectedRoom === 'All'
+      ? Math.max(roomsList.length, new Set(scoped.map(d => d.room_id).filter(Boolean)).size)
+      : 1;
+
+    const occupiedRoomSet = new Set();
+    let onlineRadarCount = 0;
+    const temps = [];
+    const humidities = [];
+    const luxValues = [];
+
+    const toFiniteNum = (v) => {
+      if (v === undefined || v === null || v === '') return null;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : null;
+    };
+
+    approved.forEach(d => {
+      if (d.status !== 'active') return;
+      const tel = d.latest_telemetry;
+      if (!tel || typeof tel !== 'object') return;
+
+      if (d.device_type === 'occupancy' || d.device_type === 'multi_sensor') {
+        onlineRadarCount += 1;
+        if (parsePresenceValue(tel) === 1 && d.room_id) {
+          occupiedRoomSet.add(d.room_id);
+        }
+      }
+
+      if (d.device_type === 'multi_sensor') {
+        const caps = parseCapabilities(d.capabilities);
+        const gpio = caps.gpio_config || {};
+        const hasDht = gpio.has_dht !== undefined ? gpio.has_dht === 1 : true;
+        const hasLight = gpio.has_light !== undefined ? gpio.has_light === 1 : true;
+
+        if (hasDht) {
+          const t = toFiniteNum(tel.temperature);
+          const h = toFiniteNum(tel.humidity);
+          if (t !== null) temps.push(t);
+          if (h !== null) humidities.push(h);
+        }
+        if (hasLight) {
+          const lx = toFiniteNum(tel.light_lux ?? tel.lux);
+          if (lx !== null) luxValues.push(lx);
+        }
+      }
+    });
+
+    const avg = (arr) => (arr.length > 0 ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
+
+    return {
+      onlineCount,
+      approvedCount: approved.length,
+      pendingCount,
+      occupiedRooms: Array.from(occupiedRoomSet),
+      totalRoomsCount,
+      onlineRadarCount,
+      avgTemp: avg(temps),
+      avgHumidity: avg(humidities),
+      tempSensorCount: temps.length,
+      avgLux: avg(luxValues),
+      lightSensorCount: luxValues.length,
+    };
+  }, [liveDevices, selectedRoom, roomsList]);
+
   const fetchTelemetryAndLogs = useCallback(() => {
     if (activeGraphNode) {
       const isRangeMode = ['1h', '24h', '7d'].includes(timeRange);
@@ -428,6 +498,89 @@ export default function DashboardTab({
 
   return (
     <div className="max-w-7xl mx-auto space-y-6">
+      
+      {/* ---------------- 0. KPI SUMMARY CARDS ---------------- */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {/* Card 1: Online Devices */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Online Devices</p>
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-2xl font-bold text-slate-800">{kpiStats.onlineCount}</span>
+              <span className="text-sm font-medium text-slate-400">/ {kpiStats.approvedCount}</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 truncate">
+              {kpiStats.pendingCount > 0
+                ? `${kpiStats.pendingCount} pending setup`
+                : selectedRoom === 'All' ? 'Across all rooms' : `In Room ${selectedRoom}`}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-blue-50 text-blue-600 shrink-0">
+            <Cpu size={22} />
+          </div>
+        </div>
+
+        {/* Card 2: Occupied Rooms */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Occupied Rooms</p>
+            <div className="flex items-baseline gap-1.5 mt-1">
+              <span className="text-2xl font-bold text-slate-800">{kpiStats.occupiedRooms.length}</span>
+              <span className="text-sm font-medium text-slate-400">/ {kpiStats.totalRoomsCount}</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 truncate">
+              {kpiStats.occupiedRooms.length > 0
+                ? `Active: ${kpiStats.occupiedRooms.join(', ')}`
+                : kpiStats.onlineRadarCount > 0 ? 'All monitored vacant' : 'No online radar'}
+            </p>
+          </div>
+          <div className={`p-3 rounded-xl shrink-0 ${kpiStats.occupiedRooms.length > 0 ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+            <Users size={22} />
+          </div>
+        </div>
+
+        {/* Card 3: Average Temperature */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Avg. Temperature</p>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-bold text-slate-800">
+                {kpiStats.avgTemp !== null ? kpiStats.avgTemp.toFixed(1) : '--'}
+              </span>
+              <span className="text-sm font-medium text-slate-400">°C</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 truncate">
+              {kpiStats.avgHumidity !== null
+                ? `Humidity: ${kpiStats.avgHumidity.toFixed(0)}% (${kpiStats.tempSensorCount} sensor${kpiStats.tempSensorCount > 1 ? 's' : ''})`
+                : 'No online DHT sensor'}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-rose-50 text-rose-500 shrink-0">
+            <Thermometer size={22} />
+          </div>
+        </div>
+
+        {/* Card 4: Average Illuminance */}
+        <div className="bg-white rounded-xl shadow-sm border border-slate-200 p-5 flex items-center justify-between">
+          <div className="min-w-0">
+            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Avg. Illuminance</p>
+            <div className="flex items-baseline gap-1 mt-1">
+              <span className="text-2xl font-bold text-slate-800">
+                {kpiStats.avgLux !== null ? Math.round(kpiStats.avgLux) : '--'}
+              </span>
+              <span className="text-sm font-medium text-slate-400">lx</span>
+            </div>
+            <p className="text-xs text-slate-400 mt-1 truncate">
+              {kpiStats.lightSensorCount > 0
+                ? `From ${kpiStats.lightSensorCount} online sensor${kpiStats.lightSensorCount > 1 ? 's' : ''}`
+                : 'No online light sensor'}
+            </p>
+          </div>
+          <div className="p-3 rounded-xl bg-amber-50 text-amber-500 shrink-0">
+            <Sun size={22} />
+          </div>
+        </div>
+      </div>
 
       {/* ---------------- 1. QUICK CONTROLS ---------------- */}
       {Object.keys(controllersByRoom).length > 0 && (

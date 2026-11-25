@@ -260,6 +260,8 @@ def on_message(client, userdata, msg):
                 if isinstance(sensor_values, str):
                     try: sensor_values = json.loads(sensor_values)
                     except: sensor_values = {}
+                if isinstance(sensor_values, dict):
+                    mqtt_shared.node_last_telemetry[device_id] = sensor_values
 
                 # 2. Change-of-Value Logging สำหรับโหนดไฟและแอร์ บันทึก DB เฉพาะตอนสถานะเปลี่ยน
                 should_save_db = True
